@@ -52,7 +52,7 @@ class BGEM3Embedder:
 
         resolved = _resolve_device(device)
         # M3Embedder expects a list of device strings
-        devices = [f"cuda:0" if resolved == "cuda" else "cpu"]
+        devices = ["cuda:0" if resolved == "cuda" else "cpu"]
         self._model = M3Embedder(
             model_name_or_path="BAAI/bge-m3",
             use_fp16=(use_fp16 and resolved == "cuda"),

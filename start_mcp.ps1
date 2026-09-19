@@ -18,14 +18,14 @@ $Root = $PSScriptRoot
 $ServerPath = Join-Path $Root "src\medrag\mcp_server\server.py"
 $EnvFile    = Join-Path $Root ".env"
 
-function Find-Mcp {
+function Find-FastMcpCli {
     param([string]$PyExe)
     $dir = Split-Path $PyExe
-    foreach ($name in @("mcp.exe", "Scripts\mcp.exe")) {
+    foreach ($name in @("fastmcp.exe", "Scripts\fastmcp.exe")) {
         $p = Join-Path $dir $name
         if (Test-Path $p) { return $p }
     }
-    $inPath = Get-Command mcp -ErrorAction SilentlyContinue
+    $inPath = Get-Command fastmcp -ErrorAction SilentlyContinue
     if ($inPath) { return $inPath.Source }
     return $null
 }
@@ -59,16 +59,17 @@ if (-not $py) {
     exit 1
 }
 
-$mcp = Find-Mcp -PyExe $py
-if (-not $mcp) {
-    Write-Host "[WARN] mcp CLI not found. Run: pip install fastmcp" -ForegroundColor Yellow
+$fastmcp = Find-FastMcpCli -PyExe $py
+if (-not $fastmcp) {
+    Write-Host "[WARN] fastmcp CLI not found. Run: pip install -e .  (inside conda env medrag)" -ForegroundColor Yellow
 }
 
 function Print-Config {
     param([string]$PyExe)
-    $pyEscaped   = $PyExe -replace '\\', '\\\\'
-    $rootEscaped = $ServerPath -replace '\\', '\\\\'
-    $srcPath     = ($Root -replace '\\', '\\\\') + '\\src'
+    # Use forward slashes in JSON — backslashes are escape sequences in JS/Inspector.
+    $pyEscaped   = ($PyExe -replace '\\', '/')
+    $rootEscaped = ($ServerPath -replace '\\', '/')
+    $srcPath     = (($Root -replace '\\', '/') + '/src')
 
     Write-Host ""
     Write-Host " Option A - Claude Code:" -ForegroundColor White
@@ -87,25 +88,28 @@ function Print-Config {
   }
 "@ -ForegroundColor Yellow
     Write-Host ""
-    Write-Host " Option C - test: .\start_mcp.ps1 -Dev" -ForegroundColor White
+    Write-Host " Option C - test: .\start_mcp.ps1 -Dev  (Inspector; uses medrag python, not uv)" -ForegroundColor White
     Write-Host ""
 }
 
 if ($Dev) {
-    if (-not $mcp) {
-        Write-StepError "Cannot start dev mode without mcp executable."
-        exit 1
-    }
-    Write-Host "Starting MCP dev server ..." -ForegroundColor Cyan
-    $env:PYTHONPATH = "$Root\src"
-    & $mcp dev $ServerPath
+    if (-not (Start-McpInspector -PythonExe $py -ServerPath $ServerPath)) { exit 1 }
 } elseif ($Install) {
-    if (-not $mcp) {
-        Write-StepError "Cannot install without mcp executable."
+    if (-not $fastmcp) {
+        Write-StepError "Cannot install without fastmcp executable."
         exit 1
     }
     $env:PYTHONPATH = "$Root\src"
-    & $mcp install $ServerPath --name "MedRAG-Agent"
+    $installArgs = @(
+        "install", "claude-desktop", $ServerPath,
+        "--name", "MedRAG-Agent",
+        "--with-editable", $Root,
+        "--project", $Root
+    )
+    if (Test-Path $EnvFile) {
+        $installArgs += @("--env-file", $EnvFile)
+    }
+    & $fastmcp @installArgs
     Write-Host "[DONE] Restart Claude Desktop." -ForegroundColor Green
 } else {
     Print-Config -PyExe $py

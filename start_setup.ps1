@@ -79,16 +79,20 @@ if (-not $py) {
 }
 Write-Host "[OK] Python: $py" -ForegroundColor Green
 
-$code = Install-ProjectDependencies -PythonExe $py
-if ($code -ne 0) {
-    Write-StepError "pip install failed" "Try: conda activate medrag; pip install -e ."
-    exit 1
+if (Test-MedragEnvHealthy -PythonExe $py -OnError { param($m) }) {
+    Write-Host "[OK] Python dependencies already installed — skipping pip" -ForegroundColor Green
+} else {
+    $code = Install-ProjectDependencies -PythonExe $py
+    if ($code -ne 0) {
+        Write-StepError "pip install -e . failed" "Scroll up for pip errors. Manual: conda activate medrag; pip install -e ."
+        exit 1
+    }
+    if (-not (Test-MedragEnvHealthy -PythonExe $py -OnError { param($m) Write-Host $m -ForegroundColor DarkRed })) {
+        Write-StepError "pip finished but health check failed" "Try: pip install -e .  then: python -c `"import medrag.api.app`""
+        exit 1
+    }
+    Write-Host "[OK] Python dependencies installed (pyproject.toml)" -ForegroundColor Green
 }
-if (-not (Test-MedragEnvHealthy -PythonExe $py -OnError { param($m) Write-Host $m -ForegroundColor DarkRed })) {
-    Write-StepError "Dependencies installed but health check failed" "See output above; try: pip install -e ."
-    exit 1
-}
-Write-Host "[OK] Python dependencies installed (pyproject.toml)" -ForegroundColor Green
 
 $envFile = Join-Path $Root ".env"
 if (-not (Test-Path $envFile)) {
@@ -115,22 +119,27 @@ if ($count -gt 0) {
 
     if ($hasCache) {
         Write-Host "[*] Uploading index_cache to Qdrant (--phase=index) ..." -ForegroundColor Cyan
-        $code = Invoke-ProjectPython -PythonExe $py -Args @("scripts/04_build_index.py", "--phase=index")
+        Write-Host "    This can take 5-30+ min (large data). Watch for [index]/[qdrant] lines below." -ForegroundColor DarkGray
+        $code = Invoke-ProjectPython -PythonExe $py -PythonArgumentList @(
+            "-u", "scripts/04_build_index.py", "--phase=index"
+        )
     } elseif ($hasRaw) {
         if ($SkipIngest) {
             Write-StepError "Have raw/ but no index_cache. Run: python scripts/04_build_index.py"
             exit 1
         }
         Write-Host "[*] Building vectors + index from raw/ (long; GPU recommended) ..." -ForegroundColor Cyan
-        $code = Invoke-ProjectPython -PythonExe $py -Args @("scripts/04_build_index.py", "--phase=all")
-    }
-
-    if ($code -ne 0) {
-        Write-StepError "Index build failed (exit $code)"
-        exit 1
+        $code = Invoke-ProjectPython -PythonExe $py -PythonArgumentList @("scripts/04_build_index.py", "--phase=all")
     }
 
     $count = Get-QdrantPointCount -PythonExe $py -OnError { param($m) Write-Host $m -ForegroundColor DarkRed }
+    if ($code -ne 0 -and $count -le 0) {
+        Write-StepError "Index build failed (exit code $code). See [index]/[qdrant] lines above."
+        exit 1
+    }
+    if ($code -ne 0 -and $count -gt 0) {
+        Write-Host "[WARN] Index script exit code was $code but Qdrant has $count points — continuing." -ForegroundColor Yellow
+    }
     if ($count -le 0) {
         Write-StepError "Index step finished but Qdrant still has 0 points."
         exit 1

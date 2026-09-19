@@ -1,3 +1,4 @@
+import { isGuidedDemo, demoSuffix } from './demo'
 import React, { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { AnswerPage } from './pages/AnswerPage'
@@ -204,12 +205,13 @@ function ThreadHistoryButton() {
 
 // ── StatusPill ──────────────────────────────────────────────────────────────
 function StatusPill() {
-  const [text, setText] = useState('checking…')
+  const [text, setText] = useState(isGuidedDemo ? 'fixed examples · no live model' : 'checking…')
   const [healthy, setHealthy] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
     async function poll() {
+      if (isGuidedDemo) { setHealthy(null); return }
       try {
         const [health, stats] = await Promise.all([
           fetchHealth().catch(() => null),
@@ -219,7 +221,7 @@ function StatusPill() {
         if (health) {
           setHealthy(health.status === 'ok')
           const model = stats?.embedding_model ?? health.llm ?? 'mimo-v2.5'
-          setText(`qdrant · ${model}`)
+          setText(health.status === 'ok' ? `ready · ${model}` : `needs setup · ${health.qdrant} / ${health.llm}`)
         } else {
           setHealthy(false)
           setText('backend offline')
@@ -332,7 +334,7 @@ function Header({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => voi
   const isExplore = location.pathname === '/explore'
 
   return (
-    <header style={{
+    <header className="vm-header" style={{
       height: 60, flexShrink: 0,
       display: 'flex', alignItems: 'center', gap: 24,
       padding: '0 24px',
@@ -340,6 +342,8 @@ function Header({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => voi
       borderBottom: '1px solid var(--rule)',
     }}>
       <BrandMark />
+      <a href={isGuidedDemo ? "/" : "/?demo=1"} style={{fontSize: 12, color: "var(--accent)"}}>{isGuidedDemo ? "Live mode" : "Guided demo"}</a>
+      <span className="vm-research-label" style={{ fontSize: 11, color: "var(--muted)" }}>Research demo · not clinical advice</span>
 
       <span style={{ width: 1, height: 22, background: 'var(--rule)', margin: '0 2px' }} />
 
@@ -349,13 +353,13 @@ function Header({ theme, setTheme }: { theme: Theme; setTheme: (t: Theme) => voi
           label="Ask"
           sub="⌘K"
           icon={IconBook}
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/' + demoSuffix)}
         />
         <NavTab
           active={isExplore}
           label="Explore"
           icon={IconCompass}
-          onClick={() => navigate('/explore')}
+          onClick={() => navigate('/explore' + demoSuffix)}
         />
       </nav>
 
@@ -384,7 +388,7 @@ export default function App() {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        window.location.pathname !== '/' && (window.location.href = '/')
+        window.location.pathname !== '/' && (window.location.href = '/' + demoSuffix)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -395,6 +399,7 @@ export default function App() {
     <BrowserRouter>
       <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--canvas)' }}>
         <Header theme={theme} setTheme={setTheme} />
+        {isGuidedDemo && <div role="status" style={{padding: "8px 16px", background: "var(--accent-soft)", color: "var(--ink)", fontSize: 12, textAlign: "center"}}>GUIDED DEMO · Authored fixed examples and illustrative steps. No live retrieval, model calls or measured scores.</div>}
         <main style={{ flex: 1, overflow: 'hidden' }}>
           <Routes>
             <Route path="/"                   element={<AnswerPage />} />

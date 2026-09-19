@@ -1,0 +1,13 @@
+* text=auto
+*.py text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.lock text eol=lf
+*.sha256 text eol=lf
+*.png binary
+
+# Preserve immutable historical artifact bytes and their recorded hashes.
+data/eval/*.json -text
+data/golden/* -text

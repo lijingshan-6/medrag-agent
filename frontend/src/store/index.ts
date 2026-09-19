@@ -64,8 +64,8 @@ export const useStore = create<AppState>((set) => ({
   setTimeline: (nodes) => set({ timeline: nodes }),
   updateNode: (name, patch) =>
     set((s) => ({
-      timeline: s.timeline.map((n) => {
-        if (n.name !== name) return n
+      timeline: s.timeline.map((n, i) => {
+        if (i !== s.timeline.findLastIndex(node => node.name === name && node.status === "running")) return n
         const elapsed_ms =
           patch.status === 'done' && n.timestamp
             ? Date.now() - n.timestamp

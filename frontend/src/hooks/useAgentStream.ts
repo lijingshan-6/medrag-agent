@@ -1,4 +1,6 @@
-import { useCallback, useRef } from 'react'
+import { isGuidedDemo, playDemo, cancelDemo } from '../demo'
+import { useCallback } from 'react'
+import { connectStream, cancelStream } from '../api/streamConnection.js'
 import { wsAskUrl } from '../api/client'
 import { useStore } from '../store'
 import type { ChunkOut } from '../types'
@@ -18,10 +20,8 @@ const NODE_LABELS: Record<string, string> = {
 }
 
 export function useAgentStream() {
-  const ws = useRef<WebSocket | null>(null)
   const {
     threadId,
-    pipeline,
     query,
     setActiveQuery,
     setStreaming,
@@ -38,7 +38,8 @@ export function useAgentStream() {
   const send = useCallback((overrideQuery?: string) => {
     const q = overrideQuery !== undefined ? overrideQuery : query
 
-    if (ws.current) ws.current.close()
+    cancelStream()
+    cancelDemo()
 
     setActiveQuery(q)
     setTimeline([])
@@ -48,35 +49,17 @@ export function useAgentStream() {
     setErrorMessage(null)
     setStreaming(true)
 
-    const socket = new WebSocket(wsAskUrl())
-    ws.current = socket
-
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ query: q, thread_id: threadId, pipeline }))
+    if (isGuidedDemo) {
+      playDemo(q, threadId, handleEvent)
+      return
     }
-
-    socket.onmessage = (msg: MessageEvent) => {
-      let ev: AgentEvent
-      try {
-        ev = JSON.parse(msg.data as string) as AgentEvent
-      } catch {
-        return
-      }
-      handleEvent(ev)
-    }
-
-    socket.onerror = (e) => {
-      console.error('WebSocket error', e)
-      setErrorMessage('WebSocket connection error — is the backend running?')
-      setStreaming(false)
-    }
-
-    socket.onclose = (e) => {
-      if (e.code !== 1000 && e.code !== 1001) {
-        console.warn('WebSocket closed unexpectedly', e.code, e.reason)
-      }
-      setStreaming(false)
-    }
+    connectStream(wsAskUrl(), { query: q, thread_id: threadId }, {
+      onEvent: handleEvent,
+      onError: (message: string) => {
+        setErrorMessage(message)
+        setStreaming(false)
+      },
+    })
 
     function handleEvent(ev: AgentEvent) {
       if (ev.event === 'node_start') {
@@ -85,7 +68,7 @@ export function useAgentStream() {
           label: NODE_LABELS[ev.node] ?? ev.node,
           status: 'running',
           summary: '',
-          timestamp: Date.now(),
+          timestamp: isGuidedDemo ? undefined : Date.now(),
         })
       }
 
@@ -108,8 +91,8 @@ export function useAgentStream() {
 
         updateNode(ev.node, {
           status: ev.node === 'rewrite' ? 'rewrite' : 'done',
-          summary,
-          detail: d,
+          summary: isGuidedDemo ? "illustrative step" : summary,
+          detail: isGuidedDemo ? undefined : d,
         })
       }
 
@@ -145,14 +128,15 @@ export function useAgentStream() {
       }
     }
   }, [
-    query, threadId, pipeline,
+    query, threadId,
     setActiveQuery, setStreaming, setTimeline, updateNode, pushNode,
     pushLiveChunk, clearLiveChunks,
     setResult, setSelectedChunkId, setErrorMessage,
   ])
 
   const cancel = useCallback(() => {
-    ws.current?.close()
+    cancelStream()
+    cancelDemo()
     setStreaming(false)
   }, [setStreaming])
 

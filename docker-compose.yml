@@ -1,28 +1,9 @@
-# MedRAG-Agent — one-command local deployment
-#
-# ── API mode (default, uses MiMo / any OpenAI-compatible cloud LLM) ──────────
-#   docker compose up -d
-#
-# ── Local LLM mode (Ollama + Qwen3-8B, no API key needed) ────────────────────
-#   docker compose --profile ollama up -d
-#
-# Other useful commands:
-#   docker compose logs -f backend   # follow backend logs
-#   docker compose down              # stop all (data preserved)
-#   docker compose down -v           # stop + wipe all volumes
-#
-# Open http://localhost:5173 in your browser.
-
+# Local research demo. See README for indexing before the first query.
 services:
-
-  # ── Vector database ──────────────────────────────────────────────────────────
   qdrant:
-    image: qdrant/qdrant:v1.9.2
-    container_name: medrag-qdrant
-    restart: unless-stopped
+    image: qdrant/qdrant:v1.17.0
     ports:
-      - "6333:6333"   # REST API
-      - "6334:6334"   # gRPC
+      - "127.0.0.1:6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -30,78 +11,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
-
-  # ── Local LLM (Qwen3-8B via Ollama) — only started with --profile ollama ────
-  ollama:
-    profiles: [ollama]
-    image: ollama/ollama:latest
-    container_name: medrag-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=24h
-    # Pull Qwen3-8B on first start (runs in background — takes ~5 min)
-    entrypoint: >
-      sh -c "ollama serve &
-             sleep 5 &&
-             ollama pull qwen3:8b &&
-             wait"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-
-  # ── FastAPI backend ───────────────────────────────────────────────────────────
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: medrag-backend
-    restart: unless-stopped
+    build: .
     ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data:ro
-      - model_cache:/root/.cache/huggingface
+      - "127.0.0.1:8000:8000"
     env_file: .env
     environment:
-      - QDRANT_URL=http://qdrant:6333
-      - OLLAMA_HOST=http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-medrag_demo}
+      MEDRAG_DATA_DIR: /app/runtime
+    volumes:
+      - checkpoints:/app/runtime
+      - model_cache:/root/.cache/huggingface
     depends_on:
       qdrant:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/live"]
+      interval: 15s
+      timeout: 5s
       retries: 5
-      start_period: 30s
-
-  # ── React frontend ────────────────────────────────────────────────────────────
+      start_period: 90s
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: medrag-frontend
-    restart: unless-stopped
+    build: ./frontend
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       backend:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
 volumes:
   qdrant_data:
-  ollama_data:
+  checkpoints:
   model_cache:

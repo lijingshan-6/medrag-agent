@@ -1,3 +1,4 @@
+import { demoSuffix } from '../demo'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
@@ -107,7 +108,7 @@ export function DocumentPage() {
         <button
           onClick={() => {
             setQuery(`Based on ${doc.citation}: ${doc.title} — `)
-            navigate('/')
+            navigate('/' + demoSuffix)
           }}
           className="flex items-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-900
                      text-white px-5 py-2.5 text-sm font-semibold transition-colors"

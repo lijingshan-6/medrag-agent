@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    host: '0.0.0.0', // IPv4 + IPv6 — http://127.0.0.1:5173 and http://localhost:5173
+    host: '127.0.0.1', // Local research demo only
     port: 5173,
     strictPort: true, // fail loudly if 5173 is taken (avoid silent jump to 5174)
     proxy: {

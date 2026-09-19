@@ -23,7 +23,7 @@ from FlagEmbedding.inference.embedder.encoder_only.m3 import M3Embedder
 from qdrant_client import QdrantClient
 
 from medrag.config import COLLECTION_NAME, qdrant_url
-from medrag.ingest.chunker import chunk_pubmed_record, chunk_pmc_record
+from medrag.ingest.chunker import Chunk, chunk_pubmed_record, chunk_pmc_record
 from medrag.index.qdrant_setup import create_collection
 from medrag.index.indexer import index_chunks
 
@@ -31,6 +31,28 @@ CACHE_DIR = Path("data/index_cache")
 DENSE_FILE = CACHE_DIR / "dense.npy"
 SPARSE_FILE = CACHE_DIR / "sparse.jsonl"
 CHUNKS_FILE = CACHE_DIR / "chunks.jsonl"
+
+
+def load_chunks_from_cache() -> list:
+    """Load chunk metadata from data/index_cache/chunks.jsonl (matches dense.npy rows)."""
+    if not CHUNKS_FILE.exists():
+        raise SystemExit(f"[error] {CHUNKS_FILE} not found. Run --phase=embed or --phase=all first.")
+    chunks: list = []
+    print(f"[index] loading chunks from {CHUNKS_FILE} ...", flush=True)
+    with CHUNKS_FILE.open(encoding="utf-8") as f:
+        for i, line in enumerate(f, start=1):
+            row = json.loads(line)
+            chunks.append(Chunk(
+                chunk_id=row["chunk_id"],
+                source=row["source"],
+                doc_id=row["doc_id"],
+                text=row["text"],
+                metadata=row.get("metadata") or {},
+            ))
+            if i % 10000 == 0:
+                print(f"[index]   ... {i} chunks loaded", flush=True)
+    print(f"[index] loaded {len(chunks)} chunks from cache", flush=True)
+    return chunks
 
 
 def load_chunks() -> list:
@@ -112,7 +134,12 @@ def phase_index(chunks, dense: np.ndarray, sparse_weights: list[dict] | None) ->
     print("[qdrant] connecting (timeout=120s)...", flush=True)
     client = QdrantClient(url=qdrant_url(), timeout=120)
     create_collection(client, COLLECTION_NAME, recreate=True)
-    print(f"[qdrant] upserting {len(chunks)} points...", flush=True)
+    print(f"[qdrant] upserting {len(chunks)} points (batch=256, may take several minutes)...", flush=True)
+
+    def _progress(done: int, total: int) -> None:
+        pct = int(100 * done / total) if total else 0
+        print(f"[qdrant]   uploaded {done}/{total} ({pct}%)", flush=True)
+
     index_chunks(
         client,
         chunks,
@@ -120,6 +147,7 @@ def phase_index(chunks, dense: np.ndarray, sparse_weights: list[dict] | None) ->
         sparse_weights=sparse_weights,
         collection=COLLECTION_NAME,
         batch=256,
+        on_batch=_progress,
     )
     count = client.count(collection_name=COLLECTION_NAME).count
     print(f"[done] qdrant points: {count}", flush=True)
@@ -165,14 +193,27 @@ def main():
 
     # ── Phase index ───────────────────────────────────────────────────────────
     if args.phase == "index":
-        chunks = load_chunks()
+        print("[index] phase=index: upload index_cache → Qdrant (no re-embedding)", flush=True)
+        chunks = load_chunks_from_cache()
+        print(f"[index] loading dense vectors from {DENSE_FILE} ...", flush=True)
         dense = np.load(DENSE_FILE)
         print(f"[index] loaded dense shape: {dense.shape}", flush=True)
+        if len(chunks) != dense.shape[0]:
+            raise SystemExit(
+                f"[error] chunks ({len(chunks)}) != dense rows ({dense.shape[0]}). "
+                "Re-run --phase=all or replace index_cache from data bundle."
+            )
         if SPARSE_FILE.exists():
+            print(f"[index] loading sparse weights from {SPARSE_FILE} ...", flush=True)
+            sparse_weights = []
             with SPARSE_FILE.open(encoding="utf-8") as f:
-                sparse_weights = [json.loads(line) for line in f]
+                for i, line in enumerate(f, start=1):
+                    sparse_weights.append(json.loads(line))
+                    if i % 10000 == 0:
+                        print(f"[index]   ... {i} sparse rows loaded", flush=True)
             print(f"[index] loaded {len(sparse_weights)} sparse entries", flush=True)
         else:
+            sparse_weights = None
             print("[index] no sparse.jsonl found, indexing dense-only", flush=True)
 
     if args.phase in ("index", "all"):

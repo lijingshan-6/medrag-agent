@@ -3,7 +3,7 @@
   "info": {
     "title": "VeritasMed API",
     "description": "Self-verifying medical literature QA backend",
-    "version": "1.0.0"
+    "version": "0.1.0"
   },
   "paths": {
     "/api/search": {
@@ -40,7 +40,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^p[123]$",
+              "pattern": "^p[23]$",
               "default": "p2",
               "title": "Pipeline"
             }
@@ -245,6 +245,28 @@
           }
         }
       }
+    },
+    "/api/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_api_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Live Api Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -378,6 +400,39 @@
             "type": "string",
             "title": "External Url",
             "default": ""
+          },
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "journal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Journal"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
           }
         },
         "type": "object",
@@ -694,6 +749,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",

@@ -1,3 +1,5 @@
+> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+
 # VeritasMed Hard Eval Set — Stage 1 构造与基线报告
 
 > 版本: v1.1 · 日期: 2026-05-08  

@@ -13,43 +13,47 @@ Security middleware (applied in order):
   4. pii             — PII redaction in audit log (query hash only stored)
   5. audit           — structured JSON-Lines to data/logs/audit.jsonl
 
-Run for local development:
-    mcp dev src/medrag/mcp_server/server.py
+Run for local development (FastMCP 3.x — use fastmcp CLI, not mcp CLI):
+    fastmcp dev inspector src/medrag/mcp_server/server.py --with-editable .
 
 Install into Claude Desktop (run once):
-    mcp install src/medrag/mcp_server/server.py --name "MedRAG-Agent"
+    fastmcp install claude-desktop src/medrag/mcp_server/server.py --name MedRAG-Agent --with-editable .
 """
 from __future__ import annotations
 
 # Windows + CUDA: preload pyarrow before torch to avoid access violation (0xC0000005)
 import pyarrow.dataset  # noqa: F401
 
+import asyncio
 import contextlib
 import io
 import logging
-import os
 import sys
+import threading
 import time
+from typing import Any
 
 # Force UTF-8 for Windows terminals
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-8-sig"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from langchain_core.callbacks import BaseCallbackHandler
+
+from medrag.config import load_project_env
+
+load_project_env()
 
 from medrag.agent.nodes import _get_retriever, _get_reranker
 from medrag.mcp_server.security import (
     AuthError,
     InjectionGuardError,
     RateLimitError,
-    audit,
-    check_injection,
     check_rate_limit,
     log_tool_call,
     sanitise_query,
     verify_token,
-    wrap_document,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
@@ -58,15 +62,18 @@ logger = logging.getLogger(__name__)
 
 # ── Token usage accumulator (LangChain callback) ───────────────────────────────
 
-class _UsageAccumulator:
+class _UsageAccumulator(BaseCallbackHandler):
     """Lightweight LangChain callback that sums prompt/completion tokens.
 
     Works with both ChatOpenAI (OpenAI-compatible) and ChatOllama responses.
     Pass an instance via config["callbacks"] when calling app.invoke().
     """
 
+    raise_error: bool = False
+
     def __init__(self) -> None:
-        self.prompt_tokens:     int = 0
+        super().__init__()
+        self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
 
     # LangChain v0.1+ interface
@@ -147,17 +154,56 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool()
-def search_literature(
+async def _report_progress(
+    ctx: Context | None,
+    progress: float,
+    total: float,
+    message: str,
+) -> None:
+    if ctx is not None:
+        await ctx.report_progress(progress, total, message)
+
+
+def _search_literature_sync(
+    sanitised: str,
+    k: int,
+    rerank: bool,
+) -> list[dict]:
+    retriever = _get_retriever()
+    chunks = retriever.retrieve(sanitised, k=20 if rerank else k)
+    if rerank and chunks:
+        chunks = _get_reranker().rerank(sanitised, chunks, top_k=k)
+    else:
+        chunks = chunks[:k]
+    return [
+        {
+            "rank": i + 1,
+            "citation": c.citation,
+            "score": round(float(c.score), 4),
+            "snippet": c.text[:500],
+            "source": c.payload.get("source", ""),
+            "doc_id": c.payload.get("doc_id", ""),
+        }
+        for i, c in enumerate(chunks)
+    ]
+
+
+@mcp.tool(timeout=600)
+async def search_literature(
     query: str,
     k: int = 5,
     rerank: bool = True,
     token: str = "",
+    ctx: Context | None = None,
 ) -> list[dict]:
     """Retrieve top-k relevant medical document chunks from PubMed/PMC.
 
     Performs hybrid dense+sparse RRF retrieval (P2), optionally followed
     by BGE cross-encoder reranking (P3 quality).
+
+    First call loads BGE models (GPU ~30–90s, CPU much longer). Inspector users:
+    set Configuration → Maximum Total Timeout to 300000 (5 min), or uncheck
+    rerank for a faster smoke test.
 
     Args:
         query: Medical question or search query.
@@ -169,47 +215,117 @@ def search_literature(
         List of dicts: rank, citation, score, snippet (500 chars), source, doc_id.
     """
     with _audit_tool("search_literature", query):
+        await _report_progress(ctx, 5, 100, "Validating request…")
         sanitised = _security_check(query, token, is_generate=False)
         k = max(1, min(k, 10))
 
-        retriever = _get_retriever()
-        chunks = retriever.retrieve(sanitised, k=20 if rerank else k)
+        await _report_progress(
+            ctx, 15, 100,
+            "Loading BGE embedder (first run can take 1–2 min; see terminal logs)…",
+        )
+        await _report_progress(ctx, 45, 100, "Searching Qdrant…")
+        if rerank:
+            await _report_progress(ctx, 70, 100, "Reranking with cross-encoder…")
 
-        if rerank and chunks:
-            chunks = _get_reranker().rerank(sanitised, chunks, top_k=k)
-        else:
-            chunks = chunks[:k]
-
-        return [
-            {
-                "rank": i + 1,
-                "citation": c.citation,
-                "score": round(float(c.score), 4),
-                "snippet": c.text[:500],
-                "source": c.payload.get("source", ""),
-                "doc_id": c.payload.get("doc_id", ""),
-            }
-            for i, c in enumerate(chunks)
-        ]
+        result = await asyncio.to_thread(_search_literature_sync, sanitised, k, rerank)
+        await _report_progress(ctx, 100, 100, "Done")
+        return result
 
 
-@mcp.tool()
-def ask_agent(
+def _ask_agent_sync(
+    sanitised: str,
+    thread_id: str,
+    usage: _UsageAccumulator,
+) -> dict:
+    from medrag.agent.graph import app
+
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "callbacks": [usage],
+    }
+    initial_state = {
+        "query": sanitised,
+        "original_query": "",
+        "query_type": "",
+        "rewritten_queries": [],
+        "retrieved_chunks": [],
+        "relevance_score": 0.0,
+        "relevant": False,
+        "grade_reason": "",
+        "rewrite_hint": "",
+        "iterations": 0,
+        "answer": "",
+        "citations": [],
+        "confidence": 0.0,
+        "faithful": False,
+        "faithfulness_issues": "",
+        "regen_count": 0,
+        "history": [],
+        "summary": "",
+    }
+    result = app.invoke(initial_state, config=config)
+    return {
+        "answer": result.get("answer", ""),
+        "citations": result.get("citations", []),
+        "confidence": result.get("confidence", 0.0),
+        "faithful": result.get("faithful", False),
+        "faithfulness_issues": result.get("faithfulness_issues", ""),
+        "iterations": result.get("iterations", 0),
+        "regen_count": result.get("regen_count", 0),
+    }
+
+
+async def _run_with_progress_heartbeat(
+    ctx: Context | None,
+    fn,
+    *args,
+    message: str = "Agent running (retrieve → grade → generate)…",
+):
+    """Run blocking agent work in a thread; pulse progress so Inspector resets timeouts."""
+
+    if ctx is None:
+        return await asyncio.to_thread(fn, *args)
+
+    done = asyncio.Event()
+    result: list[Any] = []
+    error: list[BaseException] = []
+
+    async def heartbeat() -> None:
+        progress = 10.0
+        while not done.is_set():
+            await ctx.report_progress(progress, 100, message)
+            progress = min(progress + 8.0, 92.0)
+            try:
+                await asyncio.wait_for(done.wait(), timeout=12.0)
+            except asyncio.TimeoutError:
+                continue
+
+    async def worker() -> None:
+        try:
+            result.append(await asyncio.to_thread(fn, *args))
+        except BaseException as exc:
+            error.append(exc)
+        finally:
+            done.set()
+
+    await asyncio.gather(heartbeat(), worker())
+    if error:
+        raise error[0]
+    return result[0]
+
+
+@mcp.tool(timeout=600)
+async def ask_agent(
     query: str,
     thread_id: str = "default",
     token: str = "",
+    ctx: Context | None = None,
 ) -> dict:
     """Answer a medical question using the full LangGraph agentic loop.
 
-    Pipeline:
-      1. Hybrid retrieval (dense + sparse RRF)
-      2. Cross-encoder reranking
-      3. Relevance grading — rewrites query up to 1× if chunks are insufficient
-      4. Answer generation with inline citations
-      5. Faithfulness check — re-generates once if answer contains hallucinations
-
-    Multi-turn: supply the same thread_id across calls to maintain context.
-    The agent compresses history via rolling summarisation every 10 turns.
+    Typical runtime: 1–3 min (several LLM + reranker calls). MCP Inspector: set
+    Configuration → Maximum Total Timeout to 300000+ and keep
+    Reset Timeout on Progress enabled.
 
     Args:
         query: Medical question to answer.
@@ -222,45 +338,24 @@ def ask_agent(
     """
     t0 = time.perf_counter()
     status = "ok"
+    usage: _UsageAccumulator | None = None
     try:
+        await _report_progress(ctx, 5, 100, "Validating request…")
         sanitised = _security_check(query, token, is_generate=True)
-
-        from medrag.agent.graph import app
-
-        config = {"configurable": {"thread_id": thread_id}}
-        initial_state = {
-            "query": sanitised,
-            "original_query": "",   # set by route_query node
-            "rewritten_queries": [],
-            "retrieved_chunks": [],
-            "relevance_score": 0.0,
-            "relevant": False,
-            "grade_reason": "",
-            "rewrite_hint": "",
-            "iterations": 0,
-            "answer": "",
-            "citations": [],
-            "confidence": 0.0,
-            "faithful": False,
-            "faithfulness_issues": "",
-            "regen_count": 0,
-            "history": [],          # append_history node adds the completed turn
-            "summary": "",
-        }
-
         usage = _UsageAccumulator()
-        config_with_cb = {**config, "callbacks": [usage]}
-        result = app.invoke(initial_state, config=config_with_cb)
-
-        return {
-            "answer": result.get("answer", ""),
-            "citations": result.get("citations", []),
-            "confidence": result.get("confidence", 0.0),
-            "faithful": result.get("faithful", False),
-            "faithfulness_issues": result.get("faithfulness_issues", ""),
-            "iterations": result.get("iterations", 0),
-            "regen_count": result.get("regen_count", 0),
-        }
+        await _report_progress(
+            ctx, 10, 100,
+            "Starting agent (route → retrieve → rerank → grade → generate)…",
+        )
+        out = await _run_with_progress_heartbeat(
+            ctx,
+            _ask_agent_sync,
+            sanitised,
+            thread_id,
+            usage,
+        )
+        await _report_progress(ctx, 100, 100, "Done")
+        return out
     except (AuthError, RateLimitError, InjectionGuardError) as exc:
         status = f"rejected:{type(exc).__name__}"
         raise
@@ -268,8 +363,8 @@ def ask_agent(
         status = f"error:{type(exc).__name__}"
         raise
     finally:
-        pt = usage.prompt_tokens     if "usage" in dir() else None
-        ct = usage.completion_tokens if "usage" in dir() else None
+        pt = usage.prompt_tokens if usage else None
+        ct = usage.completion_tokens if usage else None
         log_tool_call(
             "ask_agent", query, status,
             (time.perf_counter() - t0) * 1000,
@@ -380,6 +475,23 @@ def search_visual(
         "k": k,
     }
 
+
+def _start_mcp_warmup() -> None:
+    """Load embedder + reranker in background so the first tool call is faster."""
+
+    def _run() -> None:
+        try:
+            logger.info("[mcp] background warmup: loading retriever + reranker …")
+            _get_retriever()
+            _get_reranker()
+            logger.info("[mcp] background warmup: ready")
+        except Exception as exc:
+            logger.warning("[mcp] background warmup failed (first tool call will retry): %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="medrag-mcp-warmup").start()
+
+
+_start_mcp_warmup()
 
 if __name__ == "__main__":
     mcp.run()

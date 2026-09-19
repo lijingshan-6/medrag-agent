@@ -31,13 +31,13 @@ from medrag.api.routes import ask, chunk, corpus, document, history, search
 app = FastAPI(
     title="VeritasMed API",
     description="Self-verifying medical literature QA backend",
-    version="1.0.0",
+    version="0.1.0",
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # Allow any origin so the frontend can be served from any dev port or CDN.
 # Tighten to specific origins in production via CORS_ORIGINS env var.
-_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,

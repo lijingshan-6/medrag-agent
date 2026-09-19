@@ -22,7 +22,7 @@ router = APIRouter()
 async def search(
     q: str = Query(..., min_length=1, max_length=500),
     k: int = Query(default=5, ge=1, le=20),
-    pipeline: str = Query(default="p2", pattern="^p[123]$"),
+    pipeline: str = Query(default="p2", pattern="^p[23]$"),
     highlight: bool = Query(default=True),
 ) -> SearchResponse:
     t0 = time.perf_counter()

@@ -32,7 +32,10 @@ def index_chunks(
     sparse_weights: list[dict] | None = None,
     collection: str = "medrag_text",
     batch: int = 256,
+    on_batch: callable | None = None,
 ) -> None:
+    total = len(chunks)
+    uploaded = 0
     points: list[PointStruct] = []
     for i, (c, vec) in enumerate(zip(chunks, dense_vecs)):
         vector_payload: dict = {"dense": vec.tolist()}
@@ -52,9 +55,15 @@ def index_chunks(
         ))
         if len(points) >= batch:
             client.upsert(collection_name=collection, points=points)
+            uploaded += len(points)
+            if on_batch:
+                on_batch(uploaded, total)
             points = []
     if points:
         client.upsert(collection_name=collection, points=points)
+        uploaded += len(points)
+        if on_batch:
+            on_batch(uploaded, total)
 
 
 __all__ = ["index_chunks"]

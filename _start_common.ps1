@@ -46,10 +46,32 @@ function Get-QdrantHostPort {
 }
 
 function Test-QdrantRunning {
+    $health = Get-QdrantHealthUrl
+    foreach ($url in @($health, ($health -replace '://localhost', '://127.0.0.1'))) {
+        try {
+            Invoke-WebRequest $url -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop | Out-Null
+            return $true
+        } catch { }
+    }
+    return $false
+}
+
+function Get-QdrantPortOwnerHint {
+    param([int]$Port = 6333)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        Invoke-WebRequest (Get-QdrantHealthUrl) -TimeoutSec 4 -UseBasicParsing -ErrorAction Stop | Out-Null
-        return $true
-    } catch { return $false }
+        $lines = netstat -ano | Select-String ":$Port\s"
+        if (-not $lines) { return $null }
+        $pids = @($lines | ForEach-Object {
+            if ($_ -match '\s+(\d+)\s*$') { $Matches[1] }
+        } | Select-Object -Unique)
+        $names = @($pids | ForEach-Object {
+            $p = Get-Process -Id $_ -ErrorAction SilentlyContinue
+            if ($p) { "$($p.ProcessName) (PID $_)" } else { "PID $_" }
+        })
+        return ($names -join ", ")
+    } finally { $ErrorActionPreference = $prev }
 }
 
 function Test-DockerDaemon {
@@ -60,6 +82,34 @@ function Test-DockerDaemon {
         docker info 2>&1 | Out-Null
         return ($LASTEXITCODE -eq 0)
     } finally { $ErrorActionPreference = $prev }
+}
+
+function Show-QdrantDiagnostics {
+    param([string]$ContainerName = "medrag-qdrant", [int]$Port = 6333)
+
+    Write-Host ""
+    Write-Host "  Diagnostics:" -ForegroundColor Yellow
+    $owner = Get-QdrantPortOwnerHint -Port $Port
+    if ($owner) {
+        Write-Host "  Port $Port is in use by: $owner" -ForegroundColor DarkYellow
+        Write-Host "  If this is NOT medrag-qdrant, stop that process or set QDRANT_URL in .env to another port." -ForegroundColor DarkYellow
+    } else {
+        Write-Host "  Port $Port is not listening." -ForegroundColor DarkYellow
+    }
+    $status = docker ps -a --filter "name=^${ContainerName}$" --format "{{.Names}} {{.Status}}" 2>$null
+    if ($status) {
+        Write-Host "  Container: $status" -ForegroundColor DarkYellow
+        Write-Host "  Last logs:" -ForegroundColor DarkYellow
+        docker logs --tail 15 $ContainerName 2>$null | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    } else {
+        Write-Host "  Container '$ContainerName' not found (create may have failed)." -ForegroundColor DarkYellow
+    }
+    Write-Host "  Manual fix:" -ForegroundColor DarkYellow
+    Write-Host "    docker rm -f $ContainerName" -ForegroundColor DarkGray
+    $vol = Join-Path $script:ProjectRoot "data\qdrant_storage"
+    Write-Host "    docker run -d --name $ContainerName -p ${Port}:6333 -p 6334:6334 -v `"$vol`":/qdrant/storage qdrant/qdrant:latest" -ForegroundColor DarkGray
+    Write-Host "    curl http://127.0.0.1:${Port}/healthz" -ForegroundColor DarkGray
+    Write-Host ""
 }
 
 function Start-QdrantDocker {
@@ -73,6 +123,11 @@ function Start-QdrantDocker {
     $port = Get-QdrantHostPort
     $base = Get-QdrantBaseUrl
 
+    if (Test-QdrantRunning) {
+        Write-Host "[OK] Qdrant already running at $base" -ForegroundColor Green
+        return $true
+    }
+
     $prev = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
@@ -81,26 +136,45 @@ function Start-QdrantDocker {
             $running = docker ps --filter "name=^${ContainerName}$" --format "{{.Names}}" 2>$null
             if ($running -ne $ContainerName) {
                 Write-Host "[*] Starting container $ContainerName ..." -ForegroundColor Cyan
-                docker start $ContainerName 2>&1 | Out-Null
+                docker start $ContainerName 2>&1 | Out-Host
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "[WARN] docker start failed; recreating container ..." -ForegroundColor Yellow
+                    docker rm -f $ContainerName 2>&1 | Out-Null
+                    $existing = $null
+                }
             }
-        } else {
-            Write-Host "[*] Creating Qdrant container $ContainerName (host port $port) ..." -ForegroundColor Cyan
-            docker run -d --name $ContainerName -p "${port}:6333" qdrant/qdrant:latest 2>&1 | Out-Null
+        }
+        if ($existing -ne $ContainerName) {
+            $qdrantVol = Join-Path $script:ProjectRoot "data\qdrant_storage"
+            New-Item -ItemType Directory -Force -Path $qdrantVol | Out-Null
+            Write-Host "[*] Pulling/starting Qdrant (first run may take 1-2 min) ..." -ForegroundColor Cyan
+            $runOut = docker run -d --name $ContainerName `
+                -p "${port}:6333" -p "6334:6334" `
+                -v "${qdrantVol}:/qdrant/storage" `
+                qdrant/qdrant:latest 2>&1
+            $runOut | Out-Host
             if ($LASTEXITCODE -ne 0) {
-                Write-StepError "docker run failed (port $port in use?)"
+                Write-StepError "docker run failed for port $port"
+                Show-QdrantDiagnostics -ContainerName $ContainerName -Port $port
                 return $false
             }
         }
     } finally { $ErrorActionPreference = $prev }
 
-    foreach ($i in 1..20) {
-        Start-Sleep -Seconds 1
+    $maxWait = 45
+    foreach ($i in 1..$maxWait) {
         if (Test-QdrantRunning) {
-            Write-Host "[OK] Qdrant ready at $base" -ForegroundColor Green
+            Write-Host "[OK] Qdrant ready at $base (${i}s)" -ForegroundColor Green
             return $true
         }
+        if ($i -eq 1 -or ($i % 10) -eq 0) {
+            Write-Host "[*] Waiting for Qdrant health ($i/${maxWait}s) ..." -ForegroundColor DarkGray
+        }
+        Start-Sleep -Seconds 1
     }
+
     Write-StepError "Qdrant did not become healthy at $base"
+    Show-QdrantDiagnostics -ContainerName $ContainerName -Port $port
     return $false
 }
 
@@ -193,7 +267,8 @@ print('ok')
 function Invoke-ProjectPython {
     param(
         [string]$PythonExe,
-        [string[]]$Args
+        # Do NOT name this "Args" — shadows PowerShell's automatic $args and drops all arguments.
+        [string[]]$PythonArgumentList
     )
     $prevPath = $env:PYTHONPATH
     $prevEap = $ErrorActionPreference
@@ -202,7 +277,34 @@ function Invoke-ProjectPython {
     $ErrorActionPreference = "Continue"
     try {
         Set-Location $script:ProjectRoot
-        & $PythonExe @Args
+        # Pipe stdout/stderr to host only — do not let print() become function output,
+        # or "$code = Invoke-ProjectPython" captures log lines instead of exit code.
+        & $PythonExe @PythonArgumentList 2>&1 | ForEach-Object { Write-Host $_ }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Set-Location $prevLoc
+        $env:PYTHONPATH = $prevPath
+        $ErrorActionPreference = $prevEap
+    }
+    return $exitCode
+}
+
+function Invoke-Pip {
+    param(
+        [string]$PythonExe,
+        [string[]]$PipArgumentList,
+        [string]$Label = "pip"
+    )
+    Write-Host "[*] $Label ..." -ForegroundColor Cyan
+    $prevPath = $env:PYTHONPATH
+    $prevEap = $ErrorActionPreference
+    $prevLoc = Get-Location
+    $env:PYTHONPATH = "$($script:ProjectRoot)\src"
+    $ErrorActionPreference = "Continue"
+    try {
+        Set-Location $script:ProjectRoot
+        $out = & $PythonExe -m pip @PipArgumentList 2>&1
+        $out | ForEach-Object { Write-Host $_ }
         return $LASTEXITCODE
     } finally {
         Set-Location $prevLoc
@@ -215,22 +317,33 @@ function Invoke-ProjectPython {
 function Install-ProjectDependencies {
     param(
         [string]$PythonExe,
-        [switch]$WithDev
+        [switch]$WithDev,
+        [switch]$SkipCudaTorch
     )
-    $torchIndex = "https://download.pytorch.org/whl/cu124"
-    Write-Host "[*] Installing PyTorch (CUDA 12.4 wheel index) ..." -ForegroundColor Cyan
-    $code = Invoke-ProjectPython -PythonExe $PythonExe -Args @(
-        "-m", "pip", "install", "torch>=2.6", "--index-url", $torchIndex
-    )
-    if ($code -ne 0) {
-        Write-Host "[WARN] CUDA PyTorch install failed; trying CPU build from PyPI ..." -ForegroundColor Yellow
-        $code = Invoke-ProjectPython -PythonExe $PythonExe -Args @("-m", "pip", "install", "torch>=2.6")
-        if ($code -ne 0) { return $code }
+    if (-not $SkipCudaTorch) {
+        $cudaCode = Invoke-Pip -PythonExe $PythonExe -PipArgumentList @(
+            "install", "torch>=2.6", "--index-url", "https://download.pytorch.org/whl/cu124"
+        ) -Label "Installing PyTorch (CUDA 12.4, optional — GPU faster)"
+        if ($cudaCode -ne 0) {
+            Write-Host "[WARN] CUDA PyTorch install failed (network/GPU). Continuing with pip install -e . (CPU torch is OK)." -ForegroundColor Yellow
+        }
     }
 
     $editable = if ($WithDev) { ".[dev]" } else { "." }
-    Write-Host "[*] Installing project (pip install -e $editable) from pyproject.toml ..." -ForegroundColor Cyan
-    return (Invoke-ProjectPython -PythonExe $PythonExe -Args @("-m", "pip", "install", "-e", $editable))
+    $mainCode = Invoke-Pip -PythonExe $PythonExe -PipArgumentList @(
+        "install", "-e", $editable
+    ) -Label "Installing project (pip install -e $editable)"
+    if ($mainCode -ne 0) {
+        Write-Host ""
+        Write-Host "  If pip failed on network/SSL, try in Anaconda Prompt:" -ForegroundColor Yellow
+        Write-Host "    conda activate medrag" -ForegroundColor DarkGray
+        Write-Host "    cd <project-root>" -ForegroundColor DarkGray
+        Write-Host "    python -m pip install -U pip" -ForegroundColor DarkGray
+        Write-Host "    pip install -e ." -ForegroundColor DarkGray
+        Write-Host "  China mirror (optional): pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple" -ForegroundColor DarkGray
+        Write-Host ""
+    }
+    return $mainCode
 }
 
 function Get-QdrantPointCount {
@@ -293,9 +406,64 @@ function Start-BackendWindow {
 Set-Location '$root'
 `$env:PYTHONPATH = '$root\src'
 `$env:TOKENIZERS_PARALLELISM = 'false'
-& '$py' -m uvicorn medrag.api.app:app --host 0.0.0.0 --port $Port --reload
+& '$py' -m uvicorn medrag.api.app:app --host 127.0.0.1 --port $Port --reload
 "@
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $cmd | Out-Null
+}
+
+function Import-ProjectDotEnv {
+    $envPath = Join-Path $script:ProjectRoot ".env"
+    if (-not (Test-Path $envPath)) { return }
+    foreach ($line in Get-Content $envPath -Encoding UTF8) {
+        if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+        if ($line -match '^\s*([^#=]+)=(.*)$') {
+            $key = $Matches[1].Trim()
+            $val = $Matches[2].Trim().Trim('"').Trim("'")
+            [Environment]::SetEnvironmentVariable($key, $val, "Process")
+        }
+    }
+}
+
+# MCP Inspector defaults: UI 6274, proxy 6277
+function Clear-McpInspectorPorts {
+    foreach ($p in @(6274, 6277)) { Clear-PortListeners -Port $p }
+}
+
+function Convert-ToForwardSlashPath {
+    param([string]$Path)
+    return ($Path -replace '\\', '/')
+}
+
+function Start-McpInspector {
+    param(
+        [string]$PythonExe,
+        [string]$ServerPath
+    )
+    $npx = Get-Command npx -ErrorAction SilentlyContinue
+    if (-not $npx) {
+        Write-StepError "Node.js npx not found. Install Node 18+ from https://nodejs.org/"
+        return $false
+    }
+
+    Clear-McpInspectorPorts
+    Import-ProjectDotEnv
+    # Avoid user site-packages shadowing conda (breaks FlagEmbedding/transformers).
+    $env:PYTHONNOUSERSITE = "1"
+    # Forward slashes: Inspector/npx treat backslashes as escape sequences (\s, \m, …).
+    $pyArg = Convert-ToForwardSlashPath $PythonExe
+    $serverArg = Convert-ToForwardSlashPath $ServerPath
+    $env:PYTHONPATH = Convert-ToForwardSlashPath (Join-Path $script:ProjectRoot "src")
+
+    Write-Host "[*] MCP Inspector (medrag Python, not uv run — avoids Connect timeout)" -ForegroundColor Cyan
+    Write-Host "    Command: $pyArg" -ForegroundColor DarkGray
+    Write-Host "    Args:    $serverArg" -ForegroundColor DarkGray
+    Write-Host "    First Connect may take ~10s while Python loads; wait before retrying." -ForegroundColor DarkGray
+    Write-Host "    Inspector Configuration (both matter for ask_agent):" -ForegroundColor DarkGray
+    Write-Host "      Maximum Total Timeout = 600000  |  Reset Timeout on Progress = ON" -ForegroundColor DarkGray
+    Write-Host "    ask_agent usually takes 1-3 min (many LLM calls); watch this PowerShell window." -ForegroundColor DarkGray
+
+    & $npx.Source --yes "@modelcontextprotocol/inspector@0.21.2" $pyArg $serverArg
+    return ($LASTEXITCODE -eq 0)
 }
 
 function Clear-PortListeners {
@@ -331,7 +499,12 @@ function Start-FrontendWindow {
         Push-Location $feDir
         $prev = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        npm install 2>&1 | Out-Host
+        # Use lockfile; avoids peer-dep ERESOLVE on fresh machines (e.g. TS6 vs openapi-typescript ^5.x).
+        if (Test-Path (Join-Path $feDir "package-lock.json")) {
+            npm ci 2>&1 | Out-Host
+        } else {
+            npm install 2>&1 | Out-Host
+        }
         $ErrorActionPreference = $prev
         if ($LASTEXITCODE -ne 0) {
             Pop-Location

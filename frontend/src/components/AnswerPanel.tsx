@@ -1,3 +1,4 @@
+import { isGuidedDemo } from '../demo'
 import React from 'react'
 import { useStore } from '../store'
 import type { AnswerOut } from '../types/ws'
@@ -85,9 +86,9 @@ function AnnotatedParagraph({ text, citeMap, onCiteClick, isFirst }: {
 }
 
 // ── Toolbar button ─────────────────────────────────────────────────────────
-function ToolbarButton({ children, label }: { children: React.ReactNode; label: string }) {
+function ToolbarButton({ children, label, onClick }: { children: React.ReactNode; label: string; onClick: () => void }) {
   return (
-    <button
+    <button onClick={onClick}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5,
         padding: '5px 9px', borderRadius: 6,
@@ -140,7 +141,7 @@ function VerificationMark({ result }: { result: AnswerOut }) {
           fontSize: 18, lineHeight: 1.2,
           color: ok ? 'var(--verified)' : 'var(--warn)',
         }}>
-          {ok ? 'Verified against retrieved literature' : 'Unsupported claims detected'}
+          {isGuidedDemo ? 'Illustrative evidence-check result' : ok ? 'Model evidence check passed' : 'Evidence check did not pass'}
         </div>
 
         {!ok && result.faithfulness_issues && (
@@ -150,11 +151,11 @@ function VerificationMark({ result }: { result: AnswerOut }) {
         )}
 
         <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: 11, color: 'var(--muted)' }}>
-          <Metric label="confidence"    value={`${Math.round(result.confidence * 100)}%`} />
+          <Metric label="model confidence"    value={isGuidedDemo ? "not measured" : `${Math.round(result.confidence * 100)}%`} />
           <Metric label="rewrites"      value={String(result.iterations)} />
           <Metric label="regenerations" value={String(result.regen_count)} />
-          <Metric label="elapsed"       value={`${(result.latency_ms / 1000).toFixed(2)}s`} />
-          <Metric label="verifier"      value="NLI · DeBERTa-v3" />
+          <Metric label="elapsed"       value={isGuidedDemo ? "illustrative" : `${(result.latency_ms / 1000).toFixed(2)}s`} />
+          <Metric label="verifier"      value={isGuidedDemo ? "preset example" : "configured LLM"} />
         </div>
       </div>
     </div>
@@ -245,7 +246,7 @@ function FollowUps({ items, onPick }: { items: string[]; onPick: (q: string) => 
     <div style={{ marginTop: 36 }}>
       <div className="vm-eyebrow" style={{ marginBottom: 10 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <IconSparkle size={11} sw={2} /> Suggested follow-ups
+          <IconSparkle size={11} sw={2} /> Example questions (independent)
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -296,16 +297,16 @@ function EmptyState({ suggestedQueries, onPickQuery }: {
           <span style={{ fontStyle: 'italic' }}>Veritas</span>
           <span style={{ color: 'var(--accent)' }}>Med</span>
         </div>
-        <div className="vm-eyebrow" style={{ marginBottom: 24 }}>Self-verifying medical Q&amp;A</div>
+        <div className="vm-eyebrow" style={{ marginBottom: 24 }}>Evidence-grounded literature Q&amp;A</div>
 
         <p style={{
           fontFamily: 'var(--serif)', fontSize: 19, lineHeight: 1.5,
           color: 'var(--ink-soft)', maxWidth: 480, margin: '0 auto 36px',
           letterSpacing: '-0.005em',
         }}>
-          Ask a clinical question. We retrieve evidence from PubMed and PMC,
-          draft a literature-grounded answer, and verify every claim
-          against the source text before showing it to you.
+          Ask a standalone literature question. Inspect retrieved passages,
+          follow citations to their sources, and review the model’s evidence check.
+          The bundled examples use labelled summaries, not original article text.
         </p>
 
         <div className="vm-eyebrow" style={{ marginBottom: 12 }}>Try a query</div>
@@ -359,6 +360,17 @@ export function AnswerPanel({
   onPickQuery: (q: string) => void
 }) {
   const { result, isStreaming, errorMessage } = useStore()
+  const [copyLabel, setCopyLabel] = React.useState('Copy')
+  function downloadAnswer() {
+    if (!result) return
+    const text = `${isGuidedDemo ? 'GUIDED DEMO — authored fixed example; no live model.\n\n' : ''}# ${query}\n\n${result.answer}\n\nResearch demonstration; not clinical advice.\n`
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'veritasmed-answer.md'
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
 
   if (!result && !isStreaming && !errorMessage) {
     return <EmptyState suggestedQueries={suggestedQueries} onPickQuery={onPickQuery} />
@@ -419,9 +431,9 @@ export function AnswerPanel({
           }}>
             <span className="vm-eyebrow">Answer</span>
             <span style={{ flex: 1 }} />
-            <ToolbarButton label="Copy"><IconCopy size={13} sw={2} /></ToolbarButton>
-            <ToolbarButton label="Save"><IconBookmark size={13} sw={2} /></ToolbarButton>
-            <ToolbarButton label="Re-run"><IconRefresh size={13} sw={2} /></ToolbarButton>
+            <ToolbarButton label={copyLabel} onClick={() => { navigator.clipboard.writeText(result.answer).then(() => setCopyLabel("Copied")).catch(() => setCopyLabel("Copy failed")) }}><IconCopy size={13} sw={2} /></ToolbarButton>
+            <ToolbarButton label="Download" onClick={downloadAnswer}><IconBookmark size={13} sw={2} /></ToolbarButton>
+            <ToolbarButton label="Re-run" onClick={() => onPickQuery(query)}><IconRefresh size={13} sw={2} /></ToolbarButton>
           </div>
         )}
 

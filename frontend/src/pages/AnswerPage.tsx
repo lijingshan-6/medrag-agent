@@ -7,10 +7,9 @@ import { useAgentStream } from '../hooks/useAgentStream'
 import { useStore } from '../store'
 
 const SUGGESTED_QUERIES = [
-  'Efficacy of SGLT2 inhibitors for heart failure with preserved ejection fraction',
-  'Optimal duration of dual antiplatelet therapy after drug-eluting stent placement',
-  'Tirzepatide vs semaglutide for weight loss in non-diabetic adults',
-  'CAR-T cell therapy outcomes in relapsed diffuse large B-cell lymphoma',
+  'What kinds of data does the fastMRI knee dataset provide?',
+  'How does fastMRI+ extend fastMRI for imaging research?',
+  'Does this evidence establish which treatment is best for an individual patient?',
 ]
 
 export function AnswerPage() {
@@ -33,8 +32,8 @@ export function AnswerPage() {
   }, [setQuery, send])
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{
+    <div className="vm-answer-page" style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="vm-answer-grid" style={{
         flex: 1,
         display: 'grid',
         gridTemplateColumns: '320px minmax(0, 1fr) 370px',

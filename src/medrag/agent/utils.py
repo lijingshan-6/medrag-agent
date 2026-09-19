@@ -36,22 +36,35 @@ def validate_citations(
     """
     # Build set of valid citation keys from current retrieval context
     valid: set[str] = set()
-    for c in retrieved_chunks:
+    for c in retrieved_chunks or []:
         if hasattr(c, "citation"):
-            valid.add(c.citation)
+            cit = c.citation
         elif isinstance(c, dict):
             cit = c.get("citation") or _build_citation(c)
-            if cit:
-                valid.add(cit)
+        else:
+            continue
+        if isinstance(cit, str) and cit.strip():
+            valid.add(cit.strip())
 
     filtered: list[dict] = []
+    if not isinstance(claims, list):
+        return filtered
     for claim in claims:
-        cite_keys: list[str] = claim.get("cite", [])
-        if not cite_keys:
-            logger.debug("[validate_citations] dropped claim with no cite: %s", claim.get("text", "")[:60])
+        if not isinstance(claim, dict):
             continue
-        # Strip brackets the LLM may add (e.g. "[PMC:doc205]" → "PMC:doc205")
-        cite_keys = [k.strip("[]") for k in cite_keys]
+        claim_text = claim.get("text")
+        cite_keys = claim.get("cite")
+        if not isinstance(claim_text, str) or not claim_text.strip():
+            continue
+        if not isinstance(cite_keys, list) or not cite_keys:
+            continue
+        if any(not isinstance(key, str) for key in cite_keys):
+            continue
+        # Normalize wrappers and whitespace without changing the LLM output.
+        cite_keys = [key.strip().strip("[]").strip() for key in cite_keys]
+        if any(not key for key in cite_keys):
+            continue
+        cite_keys = list(dict.fromkeys(cite_keys))
         # All cited keys must be in the valid set
         invalid_keys = [k for k in cite_keys if k not in valid]
         if invalid_keys:
@@ -60,7 +73,7 @@ def validate_citations(
                 invalid_keys, sorted(valid),
             )
             continue
-        filtered.append(claim)
+        filtered.append({**claim, "cite": cite_keys})
 
     logger.info(
         "[validate_citations] %d/%d claims passed (valid cites: %s)",
@@ -87,8 +100,16 @@ def build_answer_from_claims(claims: list[dict]) -> tuple[str, list[str]]:
     seen_cites: set[str] = set()
 
     for claim in claims:
-        text = claim["text"].rstrip(" .")
-        cites: list[str] = claim.get("cite", [])
+        if not isinstance(claim, dict):
+            continue
+        claim_text = claim.get("text")
+        cite_keys = claim.get("cite")
+        if not isinstance(claim_text, str) or not claim_text.strip():
+            continue
+        if not isinstance(cite_keys, list) or not cite_keys or any(not isinstance(c, str) for c in cite_keys):
+            continue
+        text = claim_text.rstrip(" .")
+        cites: list[str] = list(dict.fromkeys(cite_keys))
         inline = " ".join(f"[{c}]" for c in cites)
         parts.append(f"{text} {inline}.")
         for c in cites:
@@ -96,6 +117,12 @@ def build_answer_from_claims(claims: list[dict]) -> tuple[str, list[str]]:
                 all_cites.append(c)
                 seen_cites.add(c)
 
+    if not parts:
+        return (
+            "The retrieved documents do not contain sufficient cited evidence "
+            "to answer this question.",
+            [],
+        )
     return " ".join(parts), all_cites
 
 

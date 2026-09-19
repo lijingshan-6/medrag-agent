@@ -1,20 +1,21 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host --strictPort",
+    "dev": "vite --host 127.0.0.1 --strictPort",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "generate-types": "openapi-typescript ../openapi.json -o src/types/api.gen.ts"
+    "generate-types": "openapi-typescript ../openapi.json -o src/types/api.gen.ts",
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "openapi-typescript": "^7.13.0",
-    "typescript": "~6.0.2",
+    "typescript": "~5.9.3",
     "vite": "^8.0.10"
   },
   "dependencies": {
@@ -30,5 +31,8 @@
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.2.4",
     "zustand": "^5.0.13"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

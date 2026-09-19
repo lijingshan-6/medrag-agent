@@ -71,7 +71,6 @@ TOP_K        = 5          # chunks passed to generator
 @lru_cache(maxsize=1)
 def _get_retriever():
     """Singleton HybridRetriever — created once per process."""
-    from qdrant_client import QdrantClient
     from medrag.index.embedder import BGEM3Embedder
     from medrag.retrieval.hybrid import HybridRetriever
 
@@ -88,10 +87,10 @@ def _get_retriever():
     # after qdrant_client's gRPC layer is initialized causes a segfault on Windows
     # due to a native library conflict between grpc and torch C++ runtimes.
     embedder = BGEM3Embedder(device=device)
-    from medrag.config import qdrant_url as _qdrant_url
+    from medrag.config import COLLECTION_NAME, get_qdrant_client
 
-    qdrant = QdrantClient(url=_qdrant_url(), timeout=30)
-    return HybridRetriever(qdrant, embedder, candidate_k=CANDIDATE_K)
+    qdrant = get_qdrant_client()
+    return HybridRetriever(qdrant, embedder, collection=COLLECTION_NAME, candidate_k=CANDIDATE_K)
 
 
 @lru_cache(maxsize=1)
@@ -495,6 +494,5 @@ __all__ = [
     "MAX_REGEN",
     "GRADE_THRESHOLD",
     "_GRADE_THRESHOLDS",
-    "REGEN_CONFIDENCE_SKIP",
     "HISTORY_SUMMARIZE_EVERY",
 ]

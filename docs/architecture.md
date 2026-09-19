@@ -1,3 +1,5 @@
+> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+
 # MedRAG-Agent — Architecture Reference
 
 > Stack: LangGraph 0.2 · FastMCP 2.x · MiMo V2.5 / V2.5-Pro (API) · BGE-M3 · BGE-Reranker-v2-m3 · Qdrant · sentence_transformers

@@ -103,7 +103,11 @@ class ErrorEvent(BaseModel):
 class AskRequest(BaseModel):
     query: str
     thread_id: str = "default"
-    pipeline: Literal["p2", "p3"] = "p2"
+    pipeline: str | None = Field(
+        default=None,
+        deprecated=True,
+        description="Legacy input accepted for compatibility; ask always runs the full agent.",
+    )
 
 
 # ── Full answer (inside "done" event data) ──────────────────────────────────

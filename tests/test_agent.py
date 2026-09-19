@@ -100,8 +100,8 @@ class TestConditionalRouting:
     def test_after_grade_exact_threshold(self, sample_state):
         from medrag.agent.graph import _after_grade
 
-        state = {**sample_state, "relevance_score": 0.6, "iterations": 0}
-        assert _after_grade(state) == "generate"   # ≥ 0.6 → generate
+        state = {**sample_state, "relevance_score": 0.75, "iterations": 0}
+        assert _after_grade(state) == "generate"   # default synthesis threshold reached
 
     def test_after_check_faithful(self, sample_state):
         from medrag.agent.graph import _after_check
@@ -118,12 +118,11 @@ class TestConditionalRouting:
     def test_after_check_unfaithful_cap_hit(self, sample_state):
         from medrag.agent.graph import _after_check
 
-        state = {**sample_state, "faithful": False, "regen_count": 1}
-        assert _after_check(state) == "end"   # MAX_REGEN=1 cap
+        state = {**sample_state, "faithful": False, "regen_count": 2}
+        assert _after_check(state) == "end"   # regeneration cap reached
 
-    def test_after_check_smart_gate_skips_regen_with_citations(self, sample_state):
+    def test_after_check_confidence_does_not_bypass_evidence_check(self, sample_state):
         from medrag.agent.graph import _after_check
-        from medrag.agent.nodes import REGEN_CONFIDENCE_SKIP
 
         # first-gen, unfaithful, but has citations + confidence ≥ threshold
         state = {
@@ -131,9 +130,9 @@ class TestConditionalRouting:
             "faithful": False,
             "regen_count": 0,
             "citations": ["PMID:12345", "PMC:doc196"],
-            "confidence": REGEN_CONFIDENCE_SKIP + 0.1,
+            "confidence": 0.99,
         }
-        assert _after_check(state) == "end"   # smart gate: protect good first-gen answer
+        assert _after_check(state) == "regenerate"
 
     def test_after_check_regen_fires_without_citations(self, sample_state):
         from medrag.agent.graph import _after_check

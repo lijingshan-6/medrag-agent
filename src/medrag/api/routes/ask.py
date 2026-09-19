@@ -9,15 +9,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from threading import Event
+from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from medrag.agent.graph import app as langgraph_app
 from medrag.api._helpers import payload_to_chunk
 from medrag.api.models import (
-    AskRequest,
     AnswerOut,
+    AskRequest,
     ChunkOut,
     ChunkRetrievedData,
     ChunkRetrievedEvent,
@@ -33,6 +35,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _SENTINEL = object()
+_STREAM_TIMEOUT_S = 300.0
+_QUEUE_CAPACITY = 32
+_PUBLIC_ERROR = "The answer could not be completed. Please try again."
 
 
 def _build_initial_state(query: str) -> dict:
@@ -57,11 +62,12 @@ def _build_initial_state(query: str) -> dict:
     }
 
 
-async def _send_safe(ws: WebSocket, payload: dict) -> None:
+async def _send_safe(ws: WebSocket, payload: dict) -> bool:
     try:
         await ws.send_json(payload)
-    except Exception:
-        pass
+        return True
+    except Exception:  # noqa: BLE001 - send failures are transport-specific
+        return False
 
 
 def _chunks_from_state(state: dict) -> list[ChunkOut]:
@@ -143,109 +149,164 @@ def _node_event(
 async def ask_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     t_start = time.perf_counter()
-    logger.info("WS /api/ask accepted")
-
     try:
         raw = await asyncio.wait_for(websocket.receive_json(), timeout=30.0)
         req = AskRequest(**raw)
-    except Exception as exc:
-        logger.exception("WS receive/parse error")
-        await _send_safe(websocket, ErrorEvent(data=ErrorData(message=str(exc))).model_dump())
+    except Exception:  # noqa: BLE001 - do not expose request parser details
+        await _send_safe(websocket, ErrorEvent(data=ErrorData(message="Invalid ask request.")).model_dump())
         await websocket.close()
         return
 
-    logger.info("WS query=%r thread=%s pipeline=%s", req.query, req.thread_id, req.pipeline)
-
-    config: dict = {"configurable": {"thread_id": req.thread_id}}
+    # The public thread label is stable in the UI, but this release runs each
+    # question as an independent turn. Reusing its checkpoint would merge
+    # reducer state and allow overlapping requests to read each other's answer.
+    config: dict = {"configurable": {"thread_id": str(uuid4())}}
     initial_state = _build_initial_state(req.query)
-
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_CAPACITY)
     loop = asyncio.get_running_loop()
+    stop = Event()
+    hidden_nodes = {"__start__", "__end__", "summarize_gate", "inc_regen"}
+
+    def _enqueue(item: tuple) -> bool:
+        """Bound thread-to-event-loop buffering; stop after disconnect/timeout."""
+        if stop.is_set():
+            return False
+        try:
+            future = asyncio.run_coroutine_threadsafe(queue.put(item), loop)
+        except RuntimeError:
+            return False
+        while not stop.is_set():
+            try:
+                future.result(timeout=0.25)
+                return True
+            except FutureTimeoutError:
+                continue
+            except RuntimeError:
+                return False
+        future.cancel()
+        return False
 
     def _stream_worker() -> None:
         try:
-            for chunk in langgraph_app.stream(
-                initial_state, config=config, stream_mode="updates"
+            for mode, chunk in langgraph_app.stream(
+                initial_state, config=config, stream_mode=["tasks", "updates"]
             ):
-                for node_name, output in chunk.items():
-                    if not isinstance(output, dict):
-                        output = {}
-                    loop.call_soon_threadsafe(queue.put_nowait, ("node_start", node_name, {}))
-                    loop.call_soon_threadsafe(queue.put_nowait, ("node_output", node_name, output))
-        except Exception as exc:
+                if stop.is_set():
+                    break
+                if mode == "tasks":
+                    if "result" not in chunk and "error" not in chunk:
+                        if not _enqueue(("node_start", chunk.get("name"), {})):
+                            break
+                    elif chunk.get("error") is not None:
+                        _enqueue(("error", None, {}))
+                        break
+                elif mode == "updates":
+                    for node_name, output in chunk.items():
+                        if not _enqueue(("node_output", node_name, output if isinstance(output, dict) else {})):
+                            break
+        except Exception:
             logger.exception("LangGraph stream error")
-            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc), {}))
+            _enqueue(("error", None, {}))
         finally:
-            loop.call_soon_threadsafe(queue.put_nowait, (_SENTINEL, None, None))
+            _enqueue((_SENTINEL, None, None))
 
-    stream_task = asyncio.ensure_future(asyncio.to_thread(_stream_worker))
+    async def _watch_disconnect() -> None:
+        try:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            stop.set()
+
+    stream_task = asyncio.create_task(asyncio.to_thread(_stream_worker))
+    disconnect_task = asyncio.create_task(_watch_disconnect())
+    deadline = loop.time() + _STREAM_TIMEOUT_S
 
     try:
         while True:
-            try:
-                item = await asyncio.wait_for(queue.get(), timeout=300.0)
-            except asyncio.TimeoutError:
-                logger.warning("WS queue timeout after 300s")
-                break
+            queue_task = asyncio.create_task(queue.get())
+            ready, _ = await asyncio.wait(
+                {queue_task, disconnect_task},
+                timeout=max(0.0, deadline - loop.time()),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if disconnect_task in ready:
+                queue_task.cancel()
+                await asyncio.gather(queue_task, return_exceptions=True)
+                return
+            if queue_task not in ready:
+                queue_task.cancel()
+                await asyncio.gather(queue_task, return_exceptions=True)
+                logger.warning("WS response deadline reached")
+                stop.set()
+                await _send_safe(websocket, ErrorEvent(data=ErrorData(message="The answer timed out. Please try again.")).model_dump())
+                return
 
-            kind, name, data = item
+            kind, name, data = queue_task.result()
             if kind is _SENTINEL:
                 break
 
             if kind == "error":
-                await _send_safe(
-                    websocket,
-                    ErrorEvent(data=ErrorData(message=name)).model_dump(),
-                )
-                break
+                stop.set()
+                await _send_safe(websocket, ErrorEvent(data=ErrorData(message=_PUBLIC_ERROR)).model_dump())
+                return
 
             if kind == "node_start":
-                if name in ("__start__", "__end__", "summarize_gate", "inc_regen"):
+                if name in hidden_nodes:
                     continue
-                await _send_safe(websocket, NodeStartEvent(node=name).model_dump())
+                if not await _send_safe(websocket, NodeStartEvent(node=name).model_dump()):
+                    return
 
             elif kind == "node_output":
-                if name in ("__start__", "__end__", "summarize_gate"):
+                if name in hidden_nodes:
                     continue
                 node_end_ev, extras = _node_event(name, data)
                 for ev in extras:
-                    await _send_safe(websocket, ev.model_dump())
-                if node_end_ev is not None:
-                    await _send_safe(websocket, node_end_ev.model_dump())
+                    if not await _send_safe(websocket, ev.model_dump()):
+                        return
+                if node_end_ev is not None and not await _send_safe(websocket, node_end_ev.model_dump()):
+                    return
 
-    except WebSocketDisconnect:
-        logger.info("WS client disconnected during stream")
-        stream_task.cancel()
-        return
-    except Exception as exc:
-        logger.exception("WS consumer error")
-        await _send_safe(websocket, ErrorEvent(data=ErrorData(message=str(exc))).model_dump())
-
-    try:
-        snapshot = langgraph_app.get_state(config)
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError
+        snapshot = await asyncio.wait_for(
+            asyncio.to_thread(langgraph_app.get_state, config), timeout=remaining
+        )
         final = snapshot.values if snapshot else {}
+        latency = round((time.perf_counter() - t_start) * 1000, 1)
+        answer_out = AnswerOut(
+            answer=final.get("answer", ""),
+            citations=final.get("citations", []),
+            confidence=final.get("confidence", 0.0),
+            faithful=final.get("faithful", False),
+            faithfulness_issues=final.get("faithfulness_issues", ""),
+            iterations=final.get("iterations", 0),
+            regen_count=final.get("regen_count", 0),
+            rewritten_queries=final.get("rewritten_queries", []),
+            chunks=_chunks_from_state(final),
+            thread_id=req.thread_id,
+            latency_ms=latency,
+        )
+        await _send_safe(websocket, DoneEvent(data=answer_out).model_dump())
+    except TimeoutError:
+        logger.warning("WS final state deadline reached")
+        await _send_safe(websocket, ErrorEvent(data=ErrorData(message="The answer timed out. Please try again.")).model_dump())
     except Exception:
-        final = {}
-
-    latency = round((time.perf_counter() - t_start) * 1000, 1)
-    answer_out = AnswerOut(
-        answer=final.get("answer", ""),
-        citations=final.get("citations", []),
-        confidence=final.get("confidence", 0.0),
-        faithful=final.get("faithful", False),
-        faithfulness_issues=final.get("faithfulness_issues", ""),
-        iterations=final.get("iterations", 0),
-        regen_count=final.get("regen_count", 0),
-        rewritten_queries=final.get("rewritten_queries", []),
-        chunks=_chunks_from_state(final),
-        thread_id=req.thread_id,
-        latency_ms=latency,
-    )
-
-    await _send_safe(websocket, DoneEvent(data=answer_out).model_dump())
-    logger.info("WS done in %.0fms", latency)
-
-    try:
-        await websocket.close()
-    except Exception:
-        pass
+        logger.exception("WS consumer error")
+        await _send_safe(websocket, ErrorEvent(data=ErrorData(message=_PUBLIC_ERROR)).model_dump())
+    finally:
+        stop.set()
+        disconnect_task.cancel()
+        await asyncio.gather(disconnect_task, return_exceptions=True)
+        # A synchronous node already in progress cannot be interrupted here.
+        # The stop flag prevents scheduling additional nodes/events afterwards.
+        if stream_task.done():
+            await asyncio.gather(stream_task, return_exceptions=True)
+        try:
+            await websocket.close()
+        except Exception:
+            logger.debug("WS close failed after request end", exc_info=True)

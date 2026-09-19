@@ -1,6 +1,7 @@
 """
 GET /api/corpus/stats — Qdrant collection statistics.
-GET /api/health       — service health check.
+GET /api/health       — dependency readiness check.
+GET /api/live         — process liveness check.
 """
 from __future__ import annotations
 
@@ -11,10 +12,9 @@ from fastapi import APIRouter
 
 from medrag.api._helpers import get_qdrant
 from medrag.api.models import CorpusStats, HealthResponse
+from medrag.config import COLLECTION_NAME
 
 router = APIRouter()
-
-from medrag.config import COLLECTION_NAME
 
 _COLLECTION = COLLECTION_NAME
 _EMBEDDING_MODEL = "BAAI/bge-m3"
@@ -70,26 +70,42 @@ async def health() -> HealthResponse:
     except Exception:
         pass
 
-    # Check LLM API (MiMo / OpenAI-compatible)
+    # Check the selected LLM backend, including successful authentication.
     llm_status = "disconnected"
-    base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE", "")
+    backend = os.environ.get("LLM_BACKEND", "mimo").strip().lower()
+    if backend == "ollama":
+        base_url = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        endpoint = "/api/tags"
+        headers = {}
+    elif backend == "mimo":
+        base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE", "")
+        endpoint = "/models"
+        headers = {"Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}"}
+    else:
+        base_url = ""
+        endpoint = ""
+        headers = {}
     if not base_url:
         llm_status = "not_configured"
     else:
         try:
-            api_key = os.environ.get("OPENAI_API_KEY", "sk-none")
             async with httpx.AsyncClient(timeout=3.0) as client:
                 r = await client.get(
-                    base_url.rstrip("/") + "/models",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    base_url.rstrip("/") + endpoint,
+                    headers=headers,
                 )
-                if r.status_code in (200, 401):
+                if r.status_code == 200:
                     llm_status = "connected"
         except Exception:
             pass
 
     return HealthResponse(
-        status="ok",
+        status="ok" if qdrant_status == "connected" and llm_status == "connected" else "degraded",
         qdrant=qdrant_status,
         llm=llm_status,
     )
+
+
+@router.get("/api/live")
+async def live() -> dict[str, str]:
+    return {"status": "ok"}

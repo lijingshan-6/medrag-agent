@@ -1,3 +1,5 @@
+> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+
 # MedRAG-Agent — Evaluation Report
 > Generated: 2026-05-06 19:19
 > Golden Dataset: **50 questions** | Pipelines: P1, P2, P3, P4, P5, P4-Agentic

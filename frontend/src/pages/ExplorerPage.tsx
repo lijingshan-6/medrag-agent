@@ -1,3 +1,4 @@
+import { demoSuffix, isGuidedDemo } from '../demo'
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchSearch } from '../api/client'
@@ -171,9 +172,9 @@ function ResultRow({ chunk, idx, onClick }: { chunk: ChunkOut; idx: number; onCl
       {/* Score */}
       <div style={{ textAlign: 'right' }}>
         <div className="vm-mono" style={{ fontSize: 14, color: 'var(--ink-soft)', fontWeight: 600 }}>
-          {score.toFixed(3)}
+          {isGuidedDemo ? '—' : score.toFixed(3)}
         </div>
-        <div className="vm-eyebrow" style={{ fontSize: 9, marginTop: 2 }}>relevance</div>
+        <div className="vm-eyebrow" style={{ fontSize: 9, marginTop: 2 }}>{isGuidedDemo ? 'not measured' : 'relevance'}</div>
         <div style={{ marginTop: 6, height: 2, background: 'var(--rule-soft)', borderRadius: 1, overflow: 'hidden' }}>
           <div style={{ width: `${Math.min(100, score * 100)}%`, height: '100%', background: `var(${colorVar})` }} />
         </div>
@@ -241,7 +242,7 @@ export function ExplorerPage() {
     : []
 
   return (
-    <div style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
+    <div className="vm-explorer" style={{ height: '100%', display: 'flex', overflow: 'hidden' }}>
       {/* Sidebar */}
       <aside style={{
         width: 240, flexShrink: 0,
@@ -257,9 +258,9 @@ export function ExplorerPage() {
 
         <FacetGroup title="Source" options={SOURCE_FACETS} value={source} onChange={setSource} />
 
-        <div className="vm-eyebrow" style={{ marginBottom: 10 }}>Retrieval</div>
+        <div className="vm-eyebrow" style={{ marginBottom: 10 }}>{isGuidedDemo ? "Fixture text search" : "Retrieval"}</div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-          {PIPELINE_OPTIONS.map((p) => (
+          {!isGuidedDemo && PIPELINE_OPTIONS.map((p) => (
             <PipelineBtn key={p.id} option={p} active={pipeline === p.id}
               onClick={() => setPipeline(p.id as 'p2' | 'p3')} />
           ))}
@@ -299,7 +300,7 @@ export function ExplorerPage() {
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={handleKeyDown}
               style={{
-                flex: 1, border: 'none', outline: 'none', background: 'transparent',
+                flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent',
                 fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)',
                 letterSpacing: '-0.005em',
               }}
@@ -340,7 +341,7 @@ export function ExplorerPage() {
                   <span style={{ fontStyle: 'italic' }}>{displayChunks.length}</span> passages
                 </span>
                 <span className="vm-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>
-                  {results.latency_ms.toFixed(0)}ms · {pipeline} · {source}
+                  {isGuidedDemo ? 'fixed examples · no measured latency' : `${results.latency_ms.toFixed(0)}ms · ${results.pipeline} · ${source}`}
                 </span>
               </div>
               <div>
@@ -349,7 +350,7 @@ export function ExplorerPage() {
                     key={c.chunk_id}
                     chunk={c}
                     idx={i}
-                    onClick={() => navigate(`/document/${encodeURIComponent(c.citation)}`)}
+                    onClick={() => navigate(`/document/${encodeURIComponent(c.citation)}${demoSuffix}`)}
                   />
                 ))}
               </div>

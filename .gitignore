@@ -253,3 +253,9 @@ docs/hardware_smoke_test.md
 data/eval/gd_*.jsonl
 data/eval/p3_results.json
 data/eval/pipeline_comparison.json
+
+# Isolated release checks and local demo runtime
+.venv-release/
+.demo-runtime/
+.playwright-cli/
+output/

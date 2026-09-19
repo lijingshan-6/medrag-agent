@@ -1,0 +1,36 @@
+name: Validate showcase
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install uv==0.11.6
+      - run: uv pip install --system --torch-backend cpu -r requirements.lock
+      - run: python -m pip install --no-deps -e .
+      - run: python -m pip check
+      - run: python -m pytest -q
+      - run: ruff check src/
+      - run: python scripts/report_release.py --check
+      - run: python -m pip wheel --no-deps . -w dist
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

@@ -11,14 +11,14 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
 from medrag.api.models import ChunkOut
-from medrag.config import COLLECTION_NAME, qdrant_url
+from medrag.config import COLLECTION_NAME, get_qdrant_client
 
 _COLLECTION = COLLECTION_NAME
 
 
 @lru_cache(maxsize=1)
 def get_qdrant() -> QdrantClient:
-    return QdrantClient(url=qdrant_url(), timeout=10)
+    return get_qdrant_client()
 
 
 # ── Payload → ChunkOut ───────────────────────────────────────────────────────
@@ -82,6 +82,8 @@ def external_url(source: str, doc_id: str, pmid: str | None) -> str:
     if source == "pubmed" and pmid:
         return f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
     if source == "pmc":
+        if re.fullmatch(r"PMC\d+", doc_id):
+            return f"https://pmc.ncbi.nlm.nih.gov/articles/{doc_id}/"
         return f"https://www.ncbi.nlm.nih.gov/pmc/search/?term={doc_id}"
     return ""
 

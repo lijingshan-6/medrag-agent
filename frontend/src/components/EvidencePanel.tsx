@@ -261,7 +261,10 @@ function EvidenceCard({
 // ── EvidencePanel ─────────────────────────────────────────────────────────
 export function EvidencePanel() {
   const { result, liveChunks, selectedChunkId, setSelectedChunkId, isStreaming } = useStore()
-  const chunks = result?.chunks?.length ? result.chunks : liveChunks
+  const rawChunks = result?.chunks?.length ? result.chunks : liveChunks
+  const chunks = Array.from(new Map(rawChunks.map(c => [c.chunk_id, c])).values())
+  const citationOrder = [...(result?.citations ?? [])]
+  for (const chunk of chunks) if (!citationOrder.includes(chunk.citation)) citationOrder.push(chunk.citation)
 
   if (!chunks.length && !isStreaming) {
     return (
@@ -278,7 +281,7 @@ export function EvidencePanel() {
           fontFamily: 'var(--serif)', fontStyle: 'italic',
         }}>
           <IconBook size={22} style={{ opacity: 0.4, marginBottom: 10 }} />
-          <p style={{ margin: 0 }}>Retrieved passages will appear here, one per source.</p>
+          <p style={{ margin: 0 }}>Retrieved passages and their sources will appear here.</p>
         </div>
       </aside>
     )
@@ -301,7 +304,7 @@ export function EvidencePanel() {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span className="vm-eyebrow">Evidence</span>
           <span className="vm-mono" style={{ fontSize: 10, color: 'var(--faint)' }}>
-            {chunks.length} {chunks.length === 1 ? 'source' : 'sources'}
+            {chunks.length} passages · {citationOrder.length} sources
           </span>
         </div>
         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--serif)', fontStyle: 'italic' }}>
@@ -310,11 +313,11 @@ export function EvidencePanel() {
       </div>
 
       <div style={{ padding: '16px 18px 32px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {chunks.map((chunk, i) => (
+        {chunks.map((chunk) => (
           <EvidenceCard
             key={chunk.chunk_id}
             chunk={chunk}
-            idx={i}
+            idx={citationOrder.indexOf(chunk.citation)}
             isSelected={selectedChunkId === chunk.chunk_id}
             onSelect={(id) => setSelectedChunkId(selectedChunkId === id ? null : id)}
           />

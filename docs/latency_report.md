@@ -1,3 +1,5 @@
+> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+
 # VeritasMed 端到端延迟报告
 
 > 版本: v3.1 · 日期: 2026-05-16  

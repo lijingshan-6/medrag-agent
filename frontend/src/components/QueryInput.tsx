@@ -17,60 +17,7 @@ function I({ size = 16, sw = 1.6, children }: { size?: number; sw?: number; chil
 const IconArrowUp  = (p: { size?: number; sw?: number }) => <I {...p}><path d="M12 19V5M6 11l6-6 6 6"/></I>
 const IconStop     = (p: { size?: number; sw?: number }) => <I {...p}><rect x="6" y="6" width="12" height="12" rx="1.5"/></I>
 const IconDatabase = (p: { size?: number; sw?: number }) => <I {...p}><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></I>
-const IconLightning = (p: { size?: number; sw?: number }) => <I {...p}><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></I>
-const IconNetwork  = (p: { size?: number; sw?: number }) => <I {...p}><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 7 16 17M16 7 8 17"/></I>
 
-// ── Pipeline toggle ────────────────────────────────────────────────────────
-function PipelineToggle({ value, onChange, disabled }: {
-  value: 'p2' | 'p3'; onChange: (v: 'p2' | 'p3') => void; disabled: boolean
-}) {
-  const options: { id: 'p2' | 'p3'; label: string; sub: string; icon: React.FC<{ size?: number; sw?: number }>; hint: string }[] = [
-    { id: 'p2', label: 'Hybrid',   sub: 'p2', icon: IconLightning, hint: 'Fast · dense+sparse retrieval' },
-    { id: 'p3', label: 'Reranked', sub: 'p3', icon: IconNetwork,   hint: 'Precise · BGE-reranker post-processing' },
-  ]
-  return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: 2, gap: 2,
-      background: 'var(--panel-2)',
-      border: '1px solid var(--rule-soft)',
-      borderRadius: 7,
-    }}>
-      {options.map((o) => {
-        const active = value === o.id
-        const Glyph = o.icon
-        return (
-          <button
-            key={o.id}
-            onClick={() => onChange(o.id)}
-            disabled={disabled}
-            title={o.hint}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '5px 9px',
-              borderRadius: 5, border: 'none',
-              background: active ? 'var(--panel)' : 'transparent',
-              boxShadow: active ? '0 1px 2px oklch(50% 0.02 80 / 0.10)' : 'none',
-              color: active ? 'var(--ink)' : 'var(--muted)',
-              fontSize: 11, fontWeight: 600, letterSpacing: '0.005em',
-              transition: 'all 120ms',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              opacity: disabled ? 0.5 : 1,
-            }}
-          >
-            <Glyph size={11} sw={2} />
-            {o.label}
-            <span className="vm-mono" style={{ fontSize: 9.5, color: 'var(--faint)', fontWeight: 500 }}>
-              {o.sub}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Thread pill ────────────────────────────────────────────────────────────
 function ThreadPill({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div style={{
@@ -95,7 +42,7 @@ function ThreadPill({ value, onChange }: { value: string; onChange: (v: string) 
 
 // ── QueryInput ─────────────────────────────────────────────────────────────
 export function QueryInput() {
-  const { query, setQuery, threadId, setThreadId, pipeline, setPipeline, isStreaming } = useStore()
+  const { query, setQuery, threadId, setThreadId, isStreaming } = useStore()
   const { send, cancel } = useAgentStream()
   const [stats, setStats] = useState<CorpusStats | null>(null)
   const [focused, setFocused] = useState(false)
@@ -152,7 +99,7 @@ export function QueryInput() {
             onBlur={() => setFocused(false)}
             disabled={isStreaming}
             rows={1}
-            placeholder="Ask a clinical question — enter to send, shift+enter for a new line"
+            placeholder="Ask a literature question — enter to send, shift+enter for a new line"
             style={{
               width: '100%', resize: 'none',
               border: 'none', outline: 'none', background: 'transparent',
@@ -171,7 +118,7 @@ export function QueryInput() {
           padding: '8px 12px 10px 14px',
           borderTop: '1px solid var(--rule-soft)',
         }}>
-          <PipelineToggle value={pipeline} onChange={setPipeline} disabled={isStreaming} />
+          <span className="vm-mono" style={{ fontSize: 11, color: "var(--muted)" }}>Evidence + self-check</span>
           <ThreadPill value={threadId} onChange={setThreadId} />
 
           {stats && (

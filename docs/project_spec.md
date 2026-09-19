@@ -1,3 +1,5 @@
+> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+
 # VeritasMed — 自校验医学文献智能问答系统
 
 > 基于 LangGraph 的主动式 RAG 系统，集成多级检索、自校验生成与安全 MCP 接口

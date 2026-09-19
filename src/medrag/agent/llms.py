@@ -69,13 +69,18 @@ def _make_llm(thinking: bool):
     temp  = 0.6 if thinking else 0.2
     model = _MIMO_THINK if thinking else _MIMO_FAST
 
-    if _BACKEND == "ollama":
+    backend = os.environ.get("LLM_BACKEND", "mimo").strip().lower()
+    timeout = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60"))
+    if backend not in {"mimo", "ollama"}:
+        raise ValueError("LLM_BACKEND must be mimo or ollama")
+    if backend == "ollama":
         from langchain_ollama import ChatOllama
         logger.debug("[llm] %s → Ollama %s (reasoning=%s)", "think" if thinking else "fast",
                      _OLLAMA_MODEL, thinking)
         return ChatOllama(
             model=_OLLAMA_MODEL,
-            base_url="http://127.0.0.1:11434",
+            base_url=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/"),
+            client_kwargs={"timeout": timeout},
             reasoning=thinking,
             temperature=temp,
             num_ctx=6144 if thinking else 4096,
@@ -96,6 +101,8 @@ def _make_llm(thinking: bool):
         base_url=_mimo_base_url(),
         api_key=_mimo_api_key(),
         temperature=temp,
+        timeout=timeout,
+        max_retries=1,
         max_tokens=4096 if thinking else 1024,
         extra_body={"thinking": {"type": "disabled"}},
     )

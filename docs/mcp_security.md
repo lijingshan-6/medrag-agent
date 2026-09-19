@@ -184,7 +184,7 @@ The redacted version is used only if raw logging is ever enabled; the default au
 ### 4.1 Local Development (default)
 ```bash
 # No token required — auth disabled automatically
-mcp dev src/medrag/mcp_server/server.py
+fastmcp dev inspector src/medrag/mcp_server/server.py --with-editable .
 ```
 - Auth: disabled (MEDRAG_LOCAL_TOKEN not set)
 - Rate limits: active (prevent accidental runaway loops)
@@ -197,7 +197,7 @@ mcp dev src/medrag/mcp_server/server.py
 export MEDRAG_LOCAL_TOKEN=$(python -c "import secrets; print(secrets.token_hex(32))")
 
 # Install
-mcp install src/medrag/mcp_server/server.py --name "MedRAG-Agent"
+fastmcp install claude-desktop src/medrag/mcp_server/server.py --name MedRAG-Agent --with-editable .
 ```
 Configure in `claude_desktop_config.json`:
 ```json
