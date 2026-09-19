@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from medrag.benchmark.inventory import build_normalized_chunks
 from medrag.benchmark.schema import BenchmarkQuestion
 from medrag.benchmark.validation import validate_questions
 
@@ -50,10 +51,29 @@ def _read_questions(path: Path) -> tuple[list[BenchmarkQuestion], list[str]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--questions", type=Path, required=True)
-    parser.add_argument("--chunks", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--chunks",
+        type=Path,
+        help="Already-normalized chunk JSONL. Legacy duplicate PMC IDs will fail.",
+    )
+    source.add_argument(
+        "--normalized-corpus-root",
+        type=Path,
+        help="Repository root containing data/raw/pubmed and data/raw/pmc.",
+    )
     args = parser.parse_args()
 
-    chunks, errors = _read_chunks(args.chunks)
+    if args.normalized_corpus_root is not None:
+        root = args.normalized_corpus_root
+        normalized = build_normalized_chunks(
+            root / "data/raw/pubmed/abstracts.jsonl",
+            root / "data/raw/pmc/full_texts.jsonl",
+        )
+        chunks = {row["chunk_id"]: row["text"] for row in normalized}
+        errors = []
+    else:
+        chunks, errors = _read_chunks(args.chunks)
     questions, question_errors = _read_questions(args.questions)
     errors.extend(question_errors)
     errors.extend(validate_questions(questions, chunks))

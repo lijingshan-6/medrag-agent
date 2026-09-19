@@ -11,7 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class StrictModel(BaseModel):
     """Forbid accidental schema drift in committed benchmark artifacts."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        protected_namespaces=(),
+    )
 
 
 class BenchmarkSplit(str, Enum):

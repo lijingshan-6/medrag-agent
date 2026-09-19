@@ -277,7 +277,7 @@ legacy-dataset explanation in `dataset_card.md`.
 
 - [ ] **Step 6: Validate the frozen artifact**
 
-Run: `python scripts/benchmark/validate_dataset.py --questions data/benchmark/veritasmed_v1/questions.jsonl --chunks data/index_cache/chunks.jsonl`
+Run: `python scripts/benchmark/validate_dataset.py --questions data/benchmark/veritasmed_v1/questions.jsonl --normalized-corpus-root .`
 
 Expected: 50 valid questions, 15 development, 35 holdout, zero evidence failures.
 
