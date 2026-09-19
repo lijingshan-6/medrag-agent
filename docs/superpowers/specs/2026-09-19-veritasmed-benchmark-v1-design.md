@@ -51,7 +51,7 @@ unsupported, citations entail the attached claims, and answerability is handled 
   status for every frozen question.
 - A 15-question development split and 35-question holdout split.
 - Deterministic schema validation and retrieval/answer scoring.
-- Local drafting with `qwen3.5:9b` and adversarial medical review with
+- Local drafting with `qwen3:8b` and adversarial medical review with
   `medgemma1.5:4b`.
 - Baseline runs of the current retrieval and Agent against the frozen benchmark.
 
@@ -66,7 +66,7 @@ unsupported, citations entail the attached claims, and answerability is handled 
 
 ## Model roles
 
-`qwen3.5:9b` is the primary local model. It may propose natural phrasings, split answers into
+`qwen3:8b` is the primary local model. It may propose natural phrasings, split answers into
 atomic claims, produce schema-constrained drafts, and run the Agent baseline. It is never the
 sole authority for accepting a question or evidence relationship.
 
@@ -308,4 +308,3 @@ review log, dataset card, and scoring code are committed.
   headline metrics.
 - Development and holdout results are reported separately.
 - The release makes no clinician-validation claim.
-

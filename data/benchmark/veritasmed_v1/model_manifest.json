@@ -10,8 +10,25 @@
   },
   "models": [
     {
-      "tag": "qwen3.5:9b",
+      "tag": "qwen3:8b",
       "role": "primary_drafter_and_agent",
+      "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+      "size_bytes": 5225388164,
+      "format": "gguf",
+      "family": "qwen3",
+      "parameter_size": "8.2B",
+      "quantization": "Q4_K_M",
+      "native_context_length": 40960,
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ],
+      "runtime_status": "active"
+    },
+    {
+      "tag": "qwen3.5:9b",
+      "role": "superseded_primary_candidate",
       "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
       "size_bytes": 6594474711,
       "format": "gguf",
@@ -24,7 +41,9 @@
         "vision",
         "tools",
         "thinking"
-      ]
+      ],
+      "runtime_status": "rejected_after_smoke_test",
+      "runtime_note": "On this host the multimodal vision warm-up did not complete within five minutes, including for a fixed one-line JSON response. It was not used to draft or review benchmark items."
     },
     {
       "tag": "medgemma1.5:4b",
@@ -39,7 +58,8 @@
       "capabilities": [
         "completion",
         "vision"
-      ]
+      ],
+      "runtime_status": "active"
     }
   ]
 }

@@ -6,7 +6,7 @@ Model agreement never accepts an item automatically.
 
 ## Review roles
 
-- `qwen3.5:9b` reconstructs an answer from only the proposed evidence and identifies
+- `qwen3:8b` reconstructs an answer from only the proposed evidence and identifies
   claim units.
 - `medgemma1.5:4b` challenges medical ambiguity, omitted qualifiers, and unsupported
   implications.
@@ -100,4 +100,3 @@ evidence after adjudication returns the item to `evidence_checked` and appends a
 An adjudication event records the question ID, prior state, next state, actor, UTC timestamp,
 model tag when applicable, prompt version, findings, decision, evidence-based resolution, and
 hash of the raw model output. Hidden reasoning is not stored.
-

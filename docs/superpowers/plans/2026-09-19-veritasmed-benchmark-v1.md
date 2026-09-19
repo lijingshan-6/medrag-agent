@@ -6,7 +6,7 @@
 
 **Architecture:** Add a focused `medrag.benchmark` package for schema, corpus inventory, validation, and scoring. Keep question creation source-first: generate an 80-item candidate pool, record exact claim-level evidence, run two local-model review passes, then adjudicate and freeze 15 development plus 35 holdout questions. Historical datasets remain immutable legacy inputs.
 
-**Tech Stack:** Python 3.12, Pydantic 2, JSONL, Ollama `qwen3.5:9b`, Ollama `medgemma1.5:4b`, existing PubMed/PMC corpus and Qdrant/BGE retrieval stack.
+**Tech Stack:** Python 3.12, Pydantic 2, JSONL, Ollama `qwen3:8b`, Ollama `medgemma1.5:4b`, existing PubMed/PMC corpus and Qdrant/BGE retrieval stack.
 
 **Spec:** `docs/superpowers/specs/2026-09-19-veritasmed-benchmark-v1-design.md`
 
@@ -16,7 +16,7 @@
 - Describe the new artifact as an evidence-grounded engineering benchmark without clinician review.
 - Do not select or reject questions using current retrieval rank.
 - Every required claim needs an exact quote resolvable in the frozen chunk snapshot.
-- Use `qwen3.5:9b` for drafting and `medgemma1.5:4b` for adversarial review; neither model can auto-accept an item.
+- Use `qwen3:8b` for drafting and `medgemma1.5:4b` for adversarial review; neither model can auto-accept an item.
 - Freeze exactly 15 development and 35 holdout questions only after review.
 - Default automation must not require network access except explicit Ollama review commands.
 
@@ -43,9 +43,9 @@
 
 - [ ] **Step 1: Pull the primary model**
 
-Run: `ollama pull qwen3.5:9b`
+Run: `ollama pull qwen3:8b`
 
-Expected: Ollama reports `success` and `/api/tags` lists `qwen3.5:9b`.
+Expected: Ollama reports `success` and `/api/tags` lists `qwen3:8b`.
 
 - [ ] **Step 2: Pull the adversarial review model**
 
@@ -346,4 +346,3 @@ Expected: no lint findings.
 git add src/medrag/benchmark scripts/benchmark tests docs/benchmark-report.md README.md data/benchmark/veritasmed_v1
 git commit -m "feat: report VeritasMed benchmark v1 baseline"
 ```
-
