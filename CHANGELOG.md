@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — evidence-grounded benchmark v1
+
+- Added a manually curated 50-question benchmark over a frozen 44,768-chunk corpus snapshot, with 44 unique sources, 20 domains, exact claim-level evidence and explicit answerability boundaries.
+- Preserved the 80-item candidate pool, local Qwen/MedGemma review trail, 30 rejection decisions and final curator adjudications as inspectable artifacts.
+- Added deterministic retrieval and answer scoring, full-set P1/P2 baselines, a development-set P3 baseline and a 15-question local answer baseline with visible curator corrections.
+- Documented the dataset contract, reproduction commands, representative successes and failures, and current limitations in the benchmark report and README.
+
 ## 0.1.0 — 2026-09-18 (local showcase candidate)
 
 - Added a labelled browser-only guided demo and an isolated live retrieval fixture, with source provenance and desktop/mobile screenshots.
