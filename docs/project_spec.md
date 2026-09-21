@@ -1,4 +1,4 @@
-> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+> Architecture-oriented development document. The historical metrics in section 1.3 are superseded. For v0.2.0 behavior and measured results, use the repository README and `docs/benchmark-v1.1-report.md`.
 
 # VeritasMed — 自校验医学文献智能问答系统
 
@@ -95,10 +95,10 @@
 | `route` | `route_query` | llm_fast (thinking=OFF) | 查询分类：factual / synthesis / multihop |
 | `retrieve` | `hybrid_retrieve` | — | BGE-M3 dense 混合检索，候选集 top-20 |
 | `rerank` | `rerank_chunks` | — | BGE-Reranker 交叉编码器，压缩至 top-5 |
-| `grade` | `grade_relevance` | llm_think (thinking=ON) | 相关性评分 0–1，生成重写提示 |
-| `rewrite` | `rewrite_query` | llm_think (thinking=ON) | 查询重写（MeSH 扩展 / 子问题分解） |
+| `grade` | `grade_relevance` | llm_think (direct output) | 相关性评分 0–1，生成重写提示 |
+| `rewrite` | `rewrite_query` | llm_think (direct output) | 查询重写（MeSH 扩展 / 子问题分解） |
 | `generate` | `generate_answer_node` | llm_fast (thinking=OFF) | 结构化 JSON 答案生成，内联引用 |
-| `check` | `check_faithfulness` | llm_think (thinking=ON) | 逐项忠实度审计，标记幻觉声明 |
+| `check` | `check_faithfulness` | llm_think (direct output) | 逐项忠实度审计，标记幻觉声明 |
 | `inc_regen` | `increment_regen` | — | 重生成计数器自增（防无限循环） |
 | `append_history` | `append_history` | — | 将已完成 Q&A 追加到 state["history"] |
 | `summarize_gate` | lambda passthrough | — | 判断是否需要压缩历史 |
@@ -114,17 +114,17 @@ LLM 后端通过 `LLM_BACKEND` 环境变量选择（默认 `mimo`）：
 
 ```
 llm_fast  — MiMo-V2.5 API (thinking=OFF, temp=0.2, max_tokens=4096)
-           Ollama 回退: qwen3:8b (thinking=OFF, num_ctx=4096)
+           Ollama 回退: qwen3.5:9b (thinking=OFF, num_ctx=4096)
            用于: route, generate, summarize
            目标: 低延迟、确定性输出
 
-llm_think — MiMo-V2.5-Pro API (thinking=ON, temp=0.6, max_tokens=4096)
-           Ollama 回退: qwen3:8b (reasoning=True, num_ctx=6144)
+llm_think — MiMo-V2.5-Pro API (thinking=OFF, temp=0.6, max_tokens=4096)
+           Ollama 回退: qwen3.5:9b (reasoning=OFF, num_ctx=6144)
            用于: grade, rewrite, check
            目标: 深度推理，更高忠实度审计质量
 ```
 
-**设计理由**：grade / rewrite / check 处理的是语义判断问题，受益于 extended thinking 提供的多步推理；generate 节点的上下文已通过检索和重排序约束，thinking=OFF 足够且延迟更低。
+**设计理由**：grade / rewrite / check 使用更大的上下文和独立提示，但要求模型直接返回短 JSON。实测 `qwen3.5:9b` 的显式 reasoning 会耗尽请求时限或截断 JSON，因此本地与 MiMo 路径都关闭隐藏推理；generate 节点同样直接输出，保证可解析性和延迟边界。
 
 ### 3.2 混合检索与 RRF 融合
 

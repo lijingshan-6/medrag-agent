@@ -1,4 +1,4 @@
-# v0.1.0 demonstration guide
+# v0.2.0 demonstration guide
 
 ## Two explicit modes
 
@@ -29,11 +29,11 @@ For MiMo, edit `.env` with valid endpoint credentials. For an already installed 
 ```dotenv
 LLM_BACKEND=ollama
 OLLAMA_HOST=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen3:8b
+OLLAMA_MODEL=qwen3.5:9b
 LLM_TIMEOUT_SECONDS=60
 ```
 
-Download the chosen model with `ollama pull qwen3:8b` first. The source supports this backend; inference with it was not tested during this release. With the default MiMo backend, questions and retrieved passages leave the machine for the configured cloud service.
+Download the chosen model with `ollama pull qwen3.5:9b` first. This model was exercised through the production Agent graph for the v1.1 development baseline. With the default MiMo backend, questions and retrieved passages leave the machine for the configured cloud service.
 
 Troubleshooting:
 
@@ -59,7 +59,7 @@ Optional Ollama override:
 
 ```sh
 docker compose -f docker-compose.yml -f compose.ollama.yml up --build -d
-docker compose -f docker-compose.yml -f compose.ollama.yml exec ollama ollama pull qwen3:8b
+docker compose -f docker-compose.yml -f compose.ollama.yml exec ollama ollama pull qwen3.5:9b
 docker compose -f docker-compose.yml -f compose.ollama.yml exec backend python scripts/bootstrap_demo.py --device cpu
 ```
 

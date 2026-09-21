@@ -8,7 +8,17 @@ def test_ollama_uses_container_host(monkeypatch):
     monkeypatch.setenv("OLLAMA_HOST", "http://ollama:11434/")
     model = llms.make_llm_fast()
     assert model.base_url == "http://ollama:11434"
+    assert model.model == "qwen3.5:9b"
     assert model.client_kwargs["timeout"] == 60.0
+
+
+def test_ollama_think_tier_returns_direct_output(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+
+    model = llms.make_llm_think()
+
+    assert model.reasoning is False
+    assert model.num_ctx == 6144
 
 
 def test_unknown_backend_fails_before_creating_client(monkeypatch):

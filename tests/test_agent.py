@@ -12,7 +12,6 @@ Run with:
 """
 from __future__ import annotations
 
-import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -236,6 +235,15 @@ class TestNodeTransformations:
         assert "do not contain sufficient cited evidence" in result["answer"]
         assert result["citations"] == []
         assert result["confidence"] == 0.0
+
+    def test_regen_prompt_repeats_the_json_contract(self):
+        from medrag.agent.prompts import REGEN_SYSTEM
+
+        assert '"claims"' in REGEN_SYSTEM
+        assert '"cite"' in REGEN_SYSTEM
+        assert '"confidence"' in REGEN_SYSTEM
+        rendered = REGEN_SYSTEM.format(faithfulness_issues="unsupported claim")
+        assert '"claims"' in rendered
 
     def test_grade_relevance_trusts_boolean_over_score(self, sample_state):
         from medrag.agent.nodes import grade_relevance

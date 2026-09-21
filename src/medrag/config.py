@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_QDRANT_URL = "http://localhost:6333"
+DEFAULT_OLLAMA_MODEL = "qwen3.5:9b"
 load_dotenv(PROJECT_ROOT / ".env")
 COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "medrag_text")
 

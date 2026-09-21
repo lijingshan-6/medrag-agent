@@ -6,12 +6,14 @@ Model agreement never accepts an item automatically.
 
 ## Review roles
 
-- `qwen3:8b` reconstructs an answer from only the proposed evidence and identifies
-  claim units.
+- `qwen3.5:9b` drafts the fresh candidate pool, reconstructs answers from only the
+  proposed evidence, and performs a final independent audit of the frozen set.
 - `medgemma1.5:4b` challenges medical ambiguity, omitted qualifiers, and unsupported
   implications.
+- `llama3.1:8b` is the independent-family blind challenger. Its findings are treated
+  as hypotheses to check, not labels to copy.
 - The curator resolves every finding against the frozen source text and records the
-  decision in `review_log.jsonl`.
+  decision in `quality_audit.jsonl` and `model_adjudications.jsonl`.
 - A later clinician review, if performed, is recorded as a separate role. It is never
   inferred from an AI review.
 
@@ -82,7 +84,7 @@ Reject or rewrite a candidate when any of these apply:
 3. `ambiguity_checked`: the question has one intended interpretation and plausible user intent.
 4. `adversarial_checked`: both local model reviews are stored, including disagreement.
 5. `adjudicated`: a curator resolves each finding from source evidence.
-6. `frozen`: the item is assigned to a split and is immutable within benchmark v1.
+6. `frozen`: the item is assigned to a split and is immutable within benchmark v1.1.
 
 Skipping a state is invalid. Any change to question text, gold claims, answerability, or required
 evidence after adjudication returns the item to `evidence_checked` and appends a new review event.
@@ -100,3 +102,7 @@ evidence after adjudication returns the item to `evidence_checked` and appends a
 An adjudication event records the question ID, prior state, next state, actor, UTC timestamp,
 model tag when applicable, prompt version, findings, decision, evidence-based resolution, and
 hash of the raw model output. Hidden reasoning is not stored.
+
+The active records live under `data/benchmark/veritasmed_v1_1/`. The historical v1
+directory is preserved as a separate snapshot and still names the models used for that
+earlier run.

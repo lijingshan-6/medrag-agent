@@ -117,7 +117,15 @@ RULES:
 2. Use ONLY claims that are explicitly supported by the context chunks.
 3. If the context contains relevant data (even partially), you MUST extract and
    cite it. Saying "insufficient evidence" when data exists is a FAILURE.
-4. Output ONLY valid JSON in the same format as the original generate prompt."""
+4. Every citation key must exactly match a bracketed PMID or PMC key in context.
+5. Output ONLY valid JSON with this exact shape, with no markdown or prose outside it:
+{{
+  "claims": [
+    {{"text": "One complete supported sentence.", "cite": ["PMID:xxxxx"]}}
+  ],
+  "confidence": 0.0
+}}
+If no claim is supportable, return {{"claims": [], "confidence": 0.0}}."""
 
 REGEN_USER = """\
 Question: {query}

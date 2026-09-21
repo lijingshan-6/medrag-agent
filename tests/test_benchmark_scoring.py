@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from medrag.benchmark.schema import BenchmarkQuestion
-from medrag.benchmark.scoring import score_answer, score_retrieval
+from medrag.benchmark.scoring import (
+    score_answer,
+    score_retrieval,
+    visible_citation_for_chunk_id,
+)
 
 
 def _question(answerability: str = "complete") -> BenchmarkQuestion:
@@ -65,7 +69,8 @@ def test_retrieval_metrics_match_hand_calculation() -> None:
     assert result.all_required_found is True
     assert result.hard_negative_hit is True
     assert result.reciprocal_rank == 1.0
-    assert result.ndcg == pytest.approx((1 + 1 / 2) / (1 + 1 / 1.5849625))
+    # Required chunks have relevance 2 and the missing context-only chunk has relevance 1.
+    assert result.ndcg == pytest.approx((2 + 2 / 2) / (2 + 2 / 1.5849625 + 1 / 2))
 
 
 def test_answer_scoring_rewards_supported_mappings_and_boundary() -> None:
@@ -106,3 +111,25 @@ def test_unanswerable_question_passes_only_with_clean_abstention() -> None:
     assert passing.answerability_score == 1.0
     assert failing.strict_pass is False
     assert failing.answerability_score == 0.0
+
+
+def test_unsupported_material_and_missing_qualifiers_fail_strict_gate() -> None:
+    result = score_answer(
+        _question(),
+        claim_mappings={"C1": ["a"], "C2": ["c"]},
+        abstained=False,
+        boundary_acknowledged=False,
+        forbidden_claims_present=False,
+        unsupported_material_claim_count=1,
+        missing_required_qualifier_count=2,
+    )
+
+    assert result.claim_completeness == 1.0
+    assert result.unsupported_material_claim_count == 1
+    assert result.missing_required_qualifier_count == 2
+    assert result.strict_pass is False
+
+
+def test_visible_citation_maps_internal_chunk_ids() -> None:
+    assert visible_citation_for_chunk_id("pubmed:41791688:0") == "PMID:41791688"
+    assert visible_citation_for_chunk_id("pmc:doc260:452") == "PMC:doc260"

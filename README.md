@@ -4,7 +4,7 @@
 
 VeritasMed connects a React interface to a LangGraph agent: retrieve literature passages, rerank them, assess the evidence, rewrite a weak query, generate a cited answer, and check it against the retrieved context. This repository is a **local research showcase**, not a clinically validated assistant.
 
-**v0.1.0 showcase** · Python 3.12 · Node.js 22.12+ · Apache-2.0
+**v0.2.0 showcase** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
 ![VeritasMed guided example: answer, workflow and cited evidence](docs/assets/guided-desktop.png)
 
@@ -56,7 +56,7 @@ The launcher indexes the bundled summaries with BGE-M3, starts the API and front
 
 The demo stores vectors and checkpoints under `.demo-runtime/`, uses collection `medrag_demo`, and does not reset the research collection `medrag_text`. **Explore works without an LLM key** after the models and fixture are installed. Live Ask also needs valid model access. The fixture contains three authored summaries about fastMRI and fastMRI+, not the original articles, medical records or MRI files; see its [provenance](data/demo/README.md).
 
-**Verified here:** Windows, Python 3.12, CPU indexing, P1/P2 retrieval on the full benchmark, P3 reranking on its development split, local Ollama generation with `qwen3:8b`, local review with `medgemma1.5:4b`, API document access, frontend build and browser interactions. Docker, the MiMo cloud path and macOS/Linux execution remain unverified. Read the [validation record](docs/validation-2026-09-18.md) before treating this as a deployment recipe.
+**Verified here:** Windows, Python 3.12, CPU indexing, CUDA reranking, the production Agent graph with local Ollama `qwen3.5:9b`, local review with `medgemma1.5:4b`, API document access, frontend build and browser interactions. Docker, the MiMo cloud path and macOS/Linux execution remain unverified. Read the [v1.1 benchmark report](docs/benchmark-v1.1-report.md) and [validation record](docs/validation-2026-09-18.md) before treating this as a deployment recipe.
 
 ## What the project demonstrates
 
@@ -83,24 +83,35 @@ flowchart LR
 
 Each Ask is a standalone question. Session labels in the interface do **not** provide conversational memory or restore previous answers. Internal checkpoints are isolated per request to prevent cross-request result contamination.
 
-## Evidence-grounded benchmark v1
+## Evidence-grounded benchmark v1.1
 
-The repository now includes a manually curated benchmark built from the frozen local corpus: 50 questions, 44 unique PubMed sources, 20 domains, exact claim-level quotes, explicit missing-evidence contracts and five same-topic abstention cases. The split is 15 development plus 35 holdout questions. It is an engineering benchmark without clinician review.
+The active benchmark contains 50 source-first questions over 44 PubMed sources and 20 domains, with exact claim-level quotes, explicit evidence gaps and five same-topic abstention cases. The 15-question development split and 35-question test split share no source or evidence chunk. All sources in this frozen snapshot are from 2026, and the set is engineering-reviewed rather than clinician-validated.
 
-| Current baseline | Scope | Required-claim recall@5 | All required found@5 | nDCG@5 | MRR@5 |
-|---|---:|---:|---:|---:|---:|
-| P1 dense | 45 answerable / 50 total | 0.9222 | 0.9111 | 0.9060 | 0.9111 |
-| P2 hybrid RRF | 45 answerable / 50 total | **0.9889** | **0.9778** | **0.9549** | **0.9463** |
-| P3 reranked | 13 answerable / 15 development | 0.9615 | 0.9231 | **0.9702** | **1.0000** |
+The v1.1 audit retained 39 contracts and revised 11. `qwen3.5:9b` generated a fresh 80-item candidate pool and re-audited the final set; `medgemma1.5:4b` challenged medical qualifiers; `llama3.1:8b` acted as an independent-family blind challenger. Every model finding was resolved against the frozen passages. Model agreement never created a final label.
 
-With P2 retrieval and local `qwen3:8b`, the 15-question development answer run achieved 96.7% required-claim completeness, 100% claim-support precision, 96.7% citation coverage and **12/15 strict passes** after visible curator correction of the model-proposed mappings. P3 is reported only on development because CPU cross-encoding is slow on this host.
+The real production Agent graph was run on development only with `qwen3.5:9b`, BGE-M3 hybrid retrieval and CUDA reranking. The test split remains untouched.
 
-[Benchmark report](docs/benchmark-report.md) · [Dataset card](data/benchmark/veritasmed_v1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1/questions.jsonl) · [Curation decisions](data/benchmark/veritasmed_v1/curation_decisions.jsonl)
+| Development result | Score |
+|---|---:|
+| Required-claim Recall@5, 13 answerable questions | 88.5% |
+| All required claims found@5 | 84.6% |
+| nDCG@5 / MRR@5 | 0.8933 / 0.9231 |
+| Claim completeness / citation coverage | 90.0% / 90.0% |
+| Claim-support precision | 100.0% |
+| Answerability score | 80.0% |
+| Strict passes | **5/15 (33.3%)** |
+| Mean end-to-end latency | 85.1 s |
+
+The Agent's own faithfulness checker passed 15/15, but source-first adjudication found two missing cross-document answers, seven answers with omitted required qualifiers, one partial answer that did not state its evidence boundary, and failures on both unanswerable questions. The gap is a measured system weakness, not a benchmark score to hide.
+
+[v1.1 report](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl) · [Per-item adjudications](data/benchmark/veritasmed_v1_1/model_adjudications.jsonl) · [Development baseline manifest](data/benchmark/veritasmed_v1_1/baseline_agent_dev_manifest.json)
 
 ```sh
-python scripts/benchmark/validate_dataset.py --questions data/benchmark/veritasmed_v1/questions.jsonl --normalized-corpus-root .
-python scripts/benchmark/score_retrieval.py --split all --pipelines p1,p2
+python scripts/benchmark/freeze_v1_1.py
+python scripts/benchmark/audit_gold.py --questions data/benchmark/veritasmed_v1_1/questions.jsonl --output-dir data/benchmark/veritasmed_v1_1 --profile-only
 ```
+
+The prior v1 metrics and direct-model component baseline remain preserved in the [v1 report](docs/benchmark-report.md); they are not treated as the production-Agent v1.1 result.
 
 ## Historical evaluation, with explicit denominators
 
@@ -158,11 +169,12 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 | `src/medrag/index/`, `src/medrag/retrieval/` | Embeddings, indexing and search |
 | `frontend/` | React interface and labelled browser fixtures |
 | `data/demo/` | Small authored demonstration corpus |
-| `data/benchmark/veritasmed_v1/` | Frozen benchmark, provenance, reviews and baselines |
+| `data/benchmark/veritasmed_v1_1/` | Active source-disjoint benchmark, reviews and production-Agent baseline |
+| `data/benchmark/veritasmed_v1/` | Preserved historical v1 benchmark and component baselines |
 | `data/eval/`, `data/golden/` | Historical evaluation artifacts and question sets |
 | `tests/` | Offline behavior and contract regressions |
 | `docs/` | Audit, plan, evaluation, validation and release notes |
 
-[Demo walkthrough / optional Docker](docs/demo.md) · [v0.1.0 release notes](docs/releases/v0.1.0.md) · [Changelog](CHANGELOG.md) · [Milestone plan](docs/superpowers/plans/2026-09-18-v0.1.0-showcase.md)
+[Demo walkthrough / optional Docker](docs/demo.md) · [v0.2.0 release notes](docs/releases/v0.2.0.md) · [Changelog](CHANGELOG.md) · [Benchmark plan](docs/superpowers/plans/2026-09-20-veritasmed-benchmark-v1.1-audit.md)
 
 Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The next research milestone is stronger claim-boundary enforcement on the new development set, followed by a paired agent-versus-plain-RAG comparison and separately validated live deployment path.

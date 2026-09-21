@@ -257,5 +257,10 @@ data/eval/pipeline_comparison.json
 # Isolated release checks and local demo runtime
 .venv-release/
 .demo-runtime/
+.benchmark-runtime/
 .playwright-cli/
 output/
+
+# Superseded benchmark attempts and per-model scratch summaries
+data/benchmark/**/**_attempt*.jsonl
+data/benchmark/**/qwen35_final_audit/quality_summary.json

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from medrag.benchmark.inventory import build_normalized_chunks
 from medrag.benchmark.review import ollama_json
 from medrag.benchmark.schema import BenchmarkQuestion
-from medrag.benchmark.scoring import score_answer
+from medrag.benchmark.scoring import score_answer, visible_citation_for_chunk_id
 
 
 class ProposedClaimMapping(BaseModel):
@@ -33,6 +33,8 @@ class ProposedAnswerAssessment(BaseModel):
     abstained: bool
     boundary_acknowledged: bool
     forbidden_claims_present: bool
+    unsupported_material_claim_count: int = Field(ge=0)
+    missing_required_qualifier_count: int = Field(ge=0)
     notes: list[str] = Field(default_factory=list, max_length=4)
 
 
@@ -98,7 +100,13 @@ def _assessment_prompt(question: BenchmarkQuestion, answer: str) -> str:
         {
             "claim_id": claim.claim_id,
             "claim": claim.text,
-            "allowed_citation_chunk_ids": [item.chunk_id for item in claim.evidence],
+            "allowed_evidence": [
+                {
+                    "chunk_id": item.chunk_id,
+                    "visible_citation": visible_citation_for_chunk_id(item.chunk_id),
+                }
+                for item in claim.evidence
+            ],
         }
         for claim in question.gold_claims
     ]
@@ -119,11 +127,15 @@ Answer:
 
 Visible source citations in answer: {json.dumps(cited_sources, ensure_ascii=False)}
 
-For each gold claim actually stated with its required qualifiers, return a claim mapping. Attach only
-allowed chunk IDs whose PMID/PMC source is visibly cited in the answer. Mark abstained only when the
+For each gold claim actually stated with its required qualifiers, return a claim mapping. The answer
+shows PMID/PMC citations while the scorer needs internal chunk IDs, so use the explicit
+visible_citation-to-chunk_id mapping above. Attach only allowed chunk IDs whose matching visible
+citation appears in the answer. Mark abstained only when the
 answer refuses the requested unsupported conclusion. Mark boundary_acknowledged when it explicitly
 states the declared missing evidence or equivalent design boundary. Mark forbidden_claims_present
-when it makes any forbidden or causal/clinical claim that exceeds the passages. Notes must be short.
+when it makes any forbidden or causal/clinical claim that exceeds the passages. Count every other
+material factual statement that the passages do not support. Count required population, comparator,
+number, time-point, uncertainty, or study-design qualifiers that the answer omits. Notes must be short.
 """
 
 
@@ -145,6 +157,8 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
         "claim_support_precision",
         "citation_coverage",
         "answerability_score",
+        "unsupported_material_claim_count",
+        "missing_required_qualifier_count",
         "strict_pass",
     ]
 
@@ -173,12 +187,31 @@ def _summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     root = args.root.resolve()
     questions = _read_questions(root / args.questions, args.split)
-    retrieval = json.loads((root / args.retrieval).read_text(encoding="utf-8"))
-    rankings = {
-        row["id"]: row["retrieved_chunk_ids"]
-        for row in retrieval["results"]
-        if row["pipeline"] == args.pipeline and row["id"] in questions
-    }
+    saved_answers: dict[str, dict[str, Any]] = {}
+    if args.answers_input:
+        answer_artifact = json.loads(
+            (root / args.answers_input).read_text(encoding="utf-8")
+        )
+        saved_answers = {
+            row["id"]: row
+            for row in answer_artifact["results"]
+            if row["id"] in questions
+        }
+        rankings = {
+            question_id: row["retrieved_chunk_ids"]
+            for question_id, row in saved_answers.items()
+        }
+        answer_source = answer_artifact.get("answer_source", "saved_answers")
+        answer_model = answer_artifact.get("model", args.answer_model)
+    else:
+        retrieval = json.loads((root / args.retrieval).read_text(encoding="utf-8"))
+        rankings = {
+            row["id"]: row["retrieved_chunk_ids"]
+            for row in retrieval["results"]
+            if row["pipeline"] == args.pipeline and row["id"] in questions
+        }
+        answer_source = "direct_model_component"
+        answer_model = args.answer_model
     missing_rankings = set(questions) - set(rankings)
     if missing_rankings:
         raise SystemExit("retrieval artifact is missing: " + ", ".join(sorted(missing_rankings)))
@@ -205,7 +238,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             continue
 
         selected_chunks = [chunk_map[chunk_id] for chunk_id in rankings[question_id]]
-        answer = prior.get("answer")
+        answer = prior.get("answer") or saved_answers.get(question_id, {}).get("answer")
         if not answer:
             answer, answer_hash, generation_seconds = _generate_answer(
                 model=args.answer_model,
@@ -215,8 +248,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 timeout_seconds=args.timeout,
             )
         else:
-            answer_hash = prior["answer_sha256"]
-            generation_seconds = prior["generation_seconds"]
+            source_row = prior or saved_answers[question_id]
+            answer_hash = source_row["answer_sha256"]
+            generation_seconds = source_row.get(
+                "generation_seconds", source_row.get("latency_seconds", 0.0)
+            )
 
         if question_id in overrides:
             assessment = overrides[question_id]["assessment"]
@@ -244,6 +280,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             abstained=assessment["abstained"],
             boundary_acknowledged=assessment["boundary_acknowledged"],
             forbidden_claims_present=assessment["forbidden_claims_present"],
+            unsupported_material_claim_count=assessment.get(
+                "unsupported_material_claim_count", 0
+            ),
+            missing_required_qualifier_count=assessment.get(
+                "missing_required_qualifier_count", 0
+            ),
         )
         results.append(
             {
@@ -253,11 +295,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "answerability": question.answerability.value,
                 "category": question.category,
                 "pipeline": args.pipeline,
+                "answer_source": answer_source,
                 "retrieved_chunk_ids": rankings[question_id],
                 "answer": answer,
                 "answer_sha256": answer_hash,
                 "generation_seconds": generation_seconds,
-                "answer_model": args.answer_model,
+                "answer_model": answer_model,
+                "agent_trace": saved_answers.get(question_id),
                 "judge_model": args.judge_model,
                 "judge_raw_output_sha256": judge_hash,
                 "assessment_status": review_status,
@@ -269,7 +313,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "schema_version": "1.0",
             "split": args.split,
             "pipeline": args.pipeline,
-            "answer_model": args.answer_model,
+            "answer_source": answer_source,
+            "answer_model": answer_model,
             "judge_model": args.judge_model,
             "summary": _summary(results),
             "results": results,
@@ -286,7 +331,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "schema_version": "1.0",
         "split": args.split,
         "pipeline": args.pipeline,
-        "answer_model": args.answer_model,
+        "answer_source": answer_source,
+        "answer_model": answer_model,
         "judge_model": args.judge_model,
         "summary": _summary(results),
         "results": results,
@@ -317,10 +363,15 @@ def main() -> None:
         type=Path,
         default=Path("data/benchmark/veritasmed_v1/baseline_answers_dev.json"),
     )
+    parser.add_argument(
+        "--answers-input",
+        type=Path,
+        help="Saved production-Agent artifact; when set, score its answers instead of generating direct component answers.",
+    )
     parser.add_argument("--overrides", type=Path)
     parser.add_argument("--split", choices=["development", "test", "all"], default="development")
-    parser.add_argument("--pipeline", choices=["p1", "p2", "p3"], default="p2")
-    parser.add_argument("--answer-model", default="qwen3:8b")
+    parser.add_argument("--pipeline", default="p2")
+    parser.add_argument("--answer-model", default="qwen3.5:9b")
     parser.add_argument("--judge-model", default="medgemma1.5:4b")
     parser.add_argument("--base-url", default="http://127.0.0.1:11434")
     parser.add_argument("--timeout", type=float, default=300.0)

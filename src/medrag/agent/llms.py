@@ -3,11 +3,11 @@
 Backend selection via environment variable LLM_BACKEND (default: mimo):
 
   LLM_BACKEND=mimo    → ChatOpenAI pointing at MiMo-V2.5 API
-  LLM_BACKEND=ollama  → ChatOllama pointing at local Qwen3-8B (fallback)
+  LLM_BACKEND=ollama  → ChatOllama pointing at the configured local model
 
 Two tiers per backend:
-  make_llm_fast()   → route, generate, summarize nodes (mimo-v2.5, thinking disabled)
-  make_llm_think()  → grade, rewrite, check nodes (mimo-v2.5-pro, thinking disabled)
+  make_llm_fast()   → route, generate, summarize nodes (thinking disabled)
+  make_llm_think()  → grade, rewrite, check nodes (thinking disabled; larger context)
 
 Note: MiMo's internal reasoning is disabled on both tiers via extra_body.
 The "think" tier still uses the heavier Pro model for better accuracy.
@@ -20,7 +20,7 @@ MiMo env vars (read from .env):
   MIMO_MODEL_THINK  — override think model name (default: mimo-v2.5-pro)
 
 Ollama env vars:
-  OLLAMA_MODEL      — override model name (default: qwen3:8b)
+  OLLAMA_MODEL      — override model name (default: qwen3.5:9b)
 
 See docs/architecture.md §4.1.1 for design rationale.
 """
@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import logging
 import os
+
+from medrag.config import DEFAULT_OLLAMA_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ _MIMO_FAST  = os.environ.get("MIMO_MODEL_FAST",  "mimo-v2.5")
 _MIMO_THINK = os.environ.get("MIMO_MODEL_THINK", "mimo-v2.5-pro")
 
 # ── Ollama model name ──────────────────────────────────────────────────────────
-_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
 
 
 def _mimo_base_url() -> str:
@@ -75,13 +77,16 @@ def _make_llm(thinking: bool):
         raise ValueError("LLM_BACKEND must be mimo or ollama")
     if backend == "ollama":
         from langchain_ollama import ChatOllama
-        logger.debug("[llm] %s → Ollama %s (reasoning=%s)", "think" if thinking else "fast",
-                     _OLLAMA_MODEL, thinking)
+        # Direct output is required for the graph's small JSON contracts.  Qwen
+        # 3.5's explicit reasoning mode can spend the entire request timeout in
+        # hidden reasoning and then return a truncated or empty JSON response.
+        logger.debug("[llm] %s → Ollama %s (reasoning disabled)",
+                     "think" if thinking else "fast", _OLLAMA_MODEL)
         return ChatOllama(
             model=_OLLAMA_MODEL,
             base_url=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/"),
             client_kwargs={"timeout": timeout},
-            reasoning=thinking,
+            reasoning=False,
             temperature=temp,
             num_ctx=6144 if thinking else 4096,
         )

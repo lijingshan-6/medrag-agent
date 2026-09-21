@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,11 +21,15 @@ from medrag.benchmark.schema import BenchmarkQuestion, ReviewEvent, ReviewStatus
 from medrag.benchmark.validation import validate_questions
 
 
+FindingText = Annotated[str, Field(min_length=1, max_length=240)]
+ReconstructedClaim = Annotated[str, Field(min_length=1, max_length=500)]
+
+
 class ModelReview(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question_id: str
-    reconstructed_claims: list[str] = Field(default_factory=list, max_length=4)
-    findings: list[str] = Field(default_factory=list, max_length=4)
+    reconstructed_claims: list[ReconstructedClaim] = Field(default_factory=list, max_length=4)
+    findings: list[FindingText] = Field(default_factory=list, max_length=4)
     decision: Literal["pass", "revise"]
     evidence_boundary: str = Field(min_length=5, max_length=500)
 
@@ -33,6 +37,12 @@ class ModelReview(BaseModel):
 class ReviewBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     items: list[ModelReview] = Field(min_length=1, max_length=8)
+
+
+def _effective_findings(review: ModelReview) -> list[str]:
+    if review.findings or review.decision == "pass":
+        return list(review.findings)
+    return [review.evidence_boundary]
 
 
 def _read_questions(path: Path) -> list[BenchmarkQuestion]:
@@ -245,6 +255,7 @@ def run_models(
                 )
             for question in batch:
                 review = reviews[question.id]
+                findings = _effective_findings(review)
                 append_review_event(
                     log_path,
                     _event(
@@ -254,7 +265,7 @@ def run_models(
                         actor="model",
                         model_tag=model,
                         raw_hash=result.raw_output_sha256,
-                        findings=review.findings,
+                        findings=findings,
                         decision=review.decision,
                         resolution=(
                             f"Independent reconstruction: {' | '.join(review.reconstructed_claims) or 'none'}. "
@@ -336,7 +347,7 @@ def adjudicate_clean(questions_path: Path, log_path: Path) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path("."))
-    parser.add_argument("--primary-model", default="qwen3:8b")
+    parser.add_argument("--primary-model", default="qwen3.5:9b")
     parser.add_argument("--medical-model", default="medgemma1.5:4b")
     parser.add_argument(
         "--questions",

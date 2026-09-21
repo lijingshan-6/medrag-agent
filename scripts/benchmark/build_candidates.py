@@ -427,7 +427,7 @@ def build(root: Path, output_path: Path, model: str) -> list[BenchmarkQuestion]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=Path("."))
-    parser.add_argument("--model", default="qwen3:8b")
+    parser.add_argument("--model", default="qwen3.5:9b")
     parser.add_argument(
         "--output",
         type=Path,

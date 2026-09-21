@@ -19,7 +19,8 @@ _NEXT_STATUS = {
     ReviewStatus.ADVERSARIAL_CHECKED: ReviewStatus.ADJUDICATED,
     ReviewStatus.ADJUDICATED: ReviewStatus.FROZEN,
 }
-_REVIEW_MODELS = {"qwen3:8b", "medgemma1.5:4b"}
+_PRIMARY_REVIEW_MODELS = {"qwen3:8b", "qwen3.5:9b"}
+_MEDICAL_REVIEW_MODEL = "medgemma1.5:4b"
 
 
 @dataclass(frozen=True)
@@ -78,11 +79,15 @@ def _validate_event(event: ReviewEvent, events: list[ReviewEvent]) -> None:
             and item.to_status is ReviewStatus.AMBIGUITY_CHECKED
             and item.model_tag
         }
-        missing = _REVIEW_MODELS - observed_models
+        missing = []
+        if not observed_models.intersection(_PRIMARY_REVIEW_MODELS):
+            missing.append("a Qwen primary reviewer")
+        if _MEDICAL_REVIEW_MODEL not in observed_models:
+            missing.append(_MEDICAL_REVIEW_MODEL)
         if missing:
             raise ValueError(
                 f"{event.question_id}: adversarial review is missing models "
-                f"{', '.join(sorted(missing))}"
+                f"{', '.join(missing)}"
             )
 
     if event.to_status is ReviewStatus.ADJUDICATED:
@@ -131,11 +136,41 @@ def ollama_json(
     )
 
 
+def ollama_generate_json(
+    *,
+    model: str,
+    prompt: str,
+    response_model: type[BaseModel],
+    base_url: str = "http://127.0.0.1:11434",
+    timeout_seconds: float = 180.0,
+) -> OllamaJSONResult:
+    """Use Ollama's generate endpoint for models with chat-schema incompatibilities."""
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "format": response_model.model_json_schema(),
+        "options": {"temperature": 0, "num_ctx": 8192},
+    }
+    with httpx.Client(timeout=timeout_seconds) as client:
+        response = client.post(f"{base_url.rstrip('/')}/api/generate", json=payload)
+        response.raise_for_status()
+    content = response.json()["response"]
+    parsed = response_model.model_validate_json(content)
+    return OllamaJSONResult(
+        value=parsed.model_dump(mode="json"),
+        raw_output_sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+    )
+
+
 __all__ = [
     "OllamaJSONResult",
     "append_review_event",
     "current_status",
     "events_for_question",
     "load_review_events",
+    "ollama_generate_json",
     "ollama_json",
 ]

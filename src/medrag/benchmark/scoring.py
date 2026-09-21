@@ -10,6 +10,17 @@ from typing import Any
 from medrag.benchmark.schema import Answerability, BenchmarkQuestion, ClaimImportance
 
 
+def visible_citation_for_chunk_id(chunk_id: str) -> str:
+    """Map an internal evidence chunk ID to the citation shown in answers."""
+
+    parts = chunk_id.split(":")
+    if len(parts) >= 2 and parts[0] == "pubmed":
+        return f"PMID:{parts[1]}"
+    if len(parts) >= 2 and parts[0] == "pmc":
+        return f"PMC:{parts[1]}"
+    raise ValueError(f"unsupported benchmark chunk ID: {chunk_id}")
+
+
 @dataclass(frozen=True)
 class RetrievalScore:
     required_claim_recall: float
@@ -29,6 +40,8 @@ class AnswerScore:
     claim_support_precision: float
     citation_coverage: float
     answerability_score: float
+    unsupported_material_claim_count: int
+    missing_required_qualifier_count: int
     strict_pass: bool
 
     def as_dict(self) -> dict[str, Any]:
@@ -72,13 +85,22 @@ def score_retrieval(
     supporting_recall = (
         len(supporting & ranking_set) / len(supporting) if supporting else 1.0
     )
-    relevant_chunks = set().union(*required.values()) if required else set()
-    relevances = [int(chunk_id in relevant_chunks) for chunk_id in ranking]
-    ideal_count = min(len(relevant_chunks), k)
-    ideal_dcg = _dcg([1] * ideal_count)
+    required_chunks = set().union(*required.values()) if required else set()
+    supporting_only = supporting - required_chunks
+    relevance_by_chunk = {
+        **{chunk_id: 1 for chunk_id in supporting_only},
+        **{chunk_id: 2 for chunk_id in required_chunks},
+    }
+    relevances = [relevance_by_chunk.get(chunk_id, 0) for chunk_id in ranking]
+    ideal_relevances = sorted(relevance_by_chunk.values(), reverse=True)[:k]
+    ideal_dcg = _dcg(ideal_relevances)
     ndcg = _dcg(relevances) / ideal_dcg if ideal_dcg else 0.0
     first_relevant = next(
-        (rank for rank, value in enumerate(relevances, start=1) if value),
+        (
+            rank
+            for rank, chunk_id in enumerate(ranking, start=1)
+            if chunk_id in required_chunks
+        ),
         None,
     )
     reciprocal_rank = 1 / first_relevant if first_relevant else 0.0
@@ -99,6 +121,8 @@ def score_answer(
     abstained: bool,
     boundary_acknowledged: bool,
     forbidden_claims_present: bool,
+    unsupported_material_claim_count: int = 0,
+    missing_required_qualifier_count: int = 0,
 ) -> AnswerScore:
     """Score curator-approved claim-to-citation mappings for one answer.
 
@@ -149,12 +173,16 @@ def score_answer(
         and citation_coverage == 1.0
         and answerability == 1.0
         and not forbidden_claims_present
+        and unsupported_material_claim_count == 0
+        and missing_required_qualifier_count == 0
     )
     return AnswerScore(
         claim_completeness=claim_completeness,
         claim_support_precision=support_precision,
         citation_coverage=citation_coverage,
         answerability_score=answerability,
+        unsupported_material_claim_count=unsupported_material_claim_count,
+        missing_required_qualifier_count=missing_required_qualifier_count,
         strict_pass=strict_pass,
     )
 
@@ -176,4 +204,5 @@ __all__ = [
     "aggregate_scores",
     "score_answer",
     "score_retrieval",
+    "visible_citation_for_chunk_id",
 ]

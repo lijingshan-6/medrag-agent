@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased — evidence-grounded benchmark v1
+## 0.2.0 — 2026-09-21 (local showcase candidate)
 
-- Added a manually curated 50-question benchmark over a frozen 44,768-chunk corpus snapshot, with 44 unique sources, 20 domains, exact claim-level evidence and explicit answerability boundaries.
-- Preserved the 80-item candidate pool, local Qwen/MedGemma review trail, 30 rejection decisions and final curator adjudications as inspectable artifacts.
-- Added deterministic retrieval and answer scoring, full-set P1/P2 baselines, a development-set P3 baseline and a 15-question local answer baseline with visible curator corrections.
-- Documented the dataset contract, reproduction commands, representative successes and failures, and current limitations in the benchmark report and README.
+- Added the source-disjoint VeritasMed v1.1 benchmark: 50 questions, 44 sources, 20 domains, exact evidence spans, explicit answerability boundaries and zero source or evidence-chunk overlap between development and test.
+- Rebuilt the candidate pool with `qwen3.5:9b`, challenged it with `medgemma1.5:4b` and `llama3.1:8b`, and preserved every model finding, output hash and source-first adjudication.
+- Ran the production LangGraph Agent on the 15-question development split with local `qwen3.5:9b`, BGE-M3 retrieval and CUDA reranking. The untouched 35-question test split remains reserved for a later declared milestone.
+- Recorded 88.5% required-claim Recall@5, 90.0% claim completeness, 100.0% claim-support precision and 5/15 strict answer passes, with per-question failure analysis and curator overrides.
+- Changed the active Ollama default from `qwen3:8b` to `qwen3.5:9b`; disabled hidden reasoning for bounded structured responses and restored the full JSON contract during answer regeneration.
+- Added production-Agent benchmark runners, deterministic scoring, frozen manifests, an inspectable benchmark report and v0.2.0 release documentation.
+
+No remote GitHub Release or Git tag is implied by this local candidate.
 
 ## 0.1.0 — 2026-09-18 (local showcase candidate)
 

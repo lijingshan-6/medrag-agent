@@ -24,6 +24,7 @@ from langchain_ollama import ChatOllama
 from qdrant_client import QdrantClient
 
 from medrag.agent.utils import strip_thinking
+from medrag.config import DEFAULT_OLLAMA_MODEL
 from medrag.index.embedder import BGEM3Embedder
 from medrag.retrieval.retriever import RetrievedChunk
 
@@ -51,7 +52,7 @@ class MultiQueryRetriever:
         qdrant: QdrantClient,
         embedder: BGEM3Embedder,
         collection: str = "medrag_text",
-        llm_model: str = "qwen3:8b",
+        llm_model: str = DEFAULT_OLLAMA_MODEL,
         temperature: float = 0.5,
         candidate_k: int = 10,
         rrf_k: int = 60,
