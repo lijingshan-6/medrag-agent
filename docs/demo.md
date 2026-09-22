@@ -1,4 +1,4 @@
-# v0.2.0 demonstration guide
+# VeritasMed demonstration guide
 
 ## Two explicit modes
 
@@ -16,7 +16,7 @@ Do not present guided screenshots as live inference. The three fixed answers are
 3. Select **How does fastMRI+ extend fastMRI for imaging research?** Show two source IDs, the six illustrative workflow stages, and **View context**. Two passages from the same document share a citation number.
 4. Select **Does this evidence establish which treatment is best for an individual patient?** The example explains the lack of supporting treatment evidence.
 5. Use **Explore**, search `fastMRI`, open a document and inspect its authored-summary label and original-paper link.
-6. Explain what is measured: the historical evaluation report, with explicit errors and limitations. Guided response time and confidence are not measurements.
+6. Open the [v0.3 evaluation report](agent-v0.3-report.md) and show an actual saved Agent answer next to its required evidence. Guided response time and confidence are not measurements.
 
 Copy and Download export the current answer; downloaded Markdown carries the guided-mode disclosure. Re-run repeats the selected example. Other questions in Guided mode show a clear instruction to use Live mode.
 
@@ -30,10 +30,28 @@ For MiMo, edit `.env` with valid endpoint credentials. For an already installed 
 LLM_BACKEND=ollama
 OLLAMA_HOST=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen3.5:9b
-LLM_TIMEOUT_SECONDS=60
+LLM_TIMEOUT_SECONDS=240
 ```
 
-Download the chosen model with `ollama pull qwen3.5:9b` first. This model was exercised through the production Agent graph for the v1.1 development baseline. With the default MiMo backend, questions and retrieved passages leave the machine for the configured cloud service.
+Download the chosen model with `ollama pull qwen3.5:9b` first. This model was exercised through the production Agent graph for the v1.1 baseline and v0.3 development comparison. The timeout above applies to each model call; the browser has a 300-second overall response deadline. With the default MiMo backend, questions and retrieved passages leave the machine for the configured cloud service.
+
+## Inspect a measured answer without running models
+
+Open [the development cases](agent-v0.3-cases.md) for all 15 real questions, original answers,
+gold claims, exact evidence quotes and final decisions. Suggested examples are VMG-002 for
+numerical results, VMG-018 for a two-source methods comparison, and VMG-042 for an unsupported
+comparative outcome. Also show one failed case from the report so the model's limits are visible.
+
+To recalculate the saved metrics in a lightweight Python environment:
+
+```sh
+python -m pip install "pydantic>=2.7,<3"
+python scripts/benchmark/recompute_saved_agent.py
+```
+
+This reads committed answers and adjudications. It does not generate new answers or download
+models. The full benchmark corpus is separate from the tiny fastMRI demo fixture; questions
+from the benchmark should not be asked against that fixture expecting the same evidence.
 
 Troubleshooting:
 

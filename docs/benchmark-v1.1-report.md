@@ -1,5 +1,9 @@
 # VeritasMed benchmark v1.1 report
 
+> The frozen dataset and original baseline below are preserved. For the improved Agent,
+> see the [v0.3 development comparison](agent-v0.3-report.md): 10/15 strict passes and
+> complete required-evidence retrieval on 13/13 answerable questions, with remaining failures disclosed.
+
 VeritasMed v1.1 is a source-disjoint engineering benchmark for evidence-grounded medical-literature RAG. It is not clinician-reviewed and does not establish clinical safety. This report separates dataset quality, retrieval coverage, answer quality and the Agent's own self-check so that one number cannot hide a failure in another layer.
 
 ## Frozen dataset

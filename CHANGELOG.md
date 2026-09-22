@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 — 2026-09-22 (local showcase candidate)
+
+- Plan component searches and retain evidence across requested sources; constrain single-study answers to the leading source.
+- Preserve the original question, exact statistical qualifiers and explicitly requested toxicity outcomes throughout answer generation.
+- Separate support, completeness and evidence-boundary checks; retry malformed JSON once in place and retain unresolved failures.
+- Correct HTML cleanup that could remove statistical inequalities from evidence details.
+- Publish a complete 15-question development run, source-first answer decisions and a model-free metric recalculation command. The 35-question test split remains unused.
+- Document the current Agent workflow and add a walkthrough of measured answers beside the existing guided UI demo.
+
 ## 0.2.0 — 2026-09-21 (local showcase candidate)
 
 - Added the source-disjoint VeritasMed v1.1 benchmark: 50 questions, 44 sources, 20 domains, exact evidence spans, explicit answerability boundaries and zero source or evidence-chunk overlap between development and test.

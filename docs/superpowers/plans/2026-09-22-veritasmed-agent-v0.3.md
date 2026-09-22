@@ -43,3 +43,9 @@ The first complete candidate run is retained as `agent_v03_candidate_dev_raw.jso
 Subsequent targeted probes exposed single-study source contamination, dropped toxicity
 requirements and HTML stripping of P values; fixes are included in the final checkpoint.
 The final full-run assessment and results are recorded in `docs/agent-v0.3-report.md`.
+
+Finalization completed: one clean-checkpoint run at `82e02ab`, 15 hash-bound source-first
+assessments, deterministic scores, all-case evidence walkthrough, current workflow docs and
+the Pydantic-only recalculation command. Strict pass 10/15; answerability 14/15; required
+evidence 13/13; missing qualifiers 0.33/question. The zero-unsupported target was not met
+(two additions), and that gap is explicit in the report. Mean latency was 91.3 seconds.

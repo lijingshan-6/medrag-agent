@@ -1,4 +1,4 @@
-> Historical development document. Some claims and defaults are superseded. For v0.1.0, use the repository README, docs/evaluation_report.md and docs/validation-2026-09-18.md.
+> Historical development document. The old graph, thresholds, memory and corpus counts below are superseded. For current behavior, read [the v0.3 Agent workflow](agent-workflow.md) and the repository README.
 
 # MedRAG-Agent — Architecture Reference
 

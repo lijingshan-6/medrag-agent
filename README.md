@@ -4,7 +4,7 @@
 
 VeritasMed connects a React interface to a LangGraph agent: retrieve literature passages, rerank them, assess the evidence, rewrite a weak query, generate a cited answer, and check it against the retrieved context. This repository is a **local research showcase**, not a clinically validated assistant.
 
-**v0.2.0 showcase** · Python 3.12 · Node.js 22.12+ · Apache-2.0
+**v0.3.0 local showcase candidate** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
 ![VeritasMed guided example: answer, workflow and cited evidence](docs/assets/guided-desktop.png)
 
@@ -37,7 +37,18 @@ uv pip sync requirements.lock --torch-backend cpu
 uv pip install --no-deps -e .
 ```
 
-Copy `.env.example` to `.env`, then set a valid `OPENAI_API_KEY` for the configured MiMo endpoint. The alternative Ollama configuration is in [the demo guide](docs/demo.md). Never commit `.env`.
+Copy `.env.example` to `.env`. For the locally evaluated path, install and start Ollama,
+run `ollama pull qwen3.5:9b`, and set these values in `.env`:
+
+```dotenv
+LLM_BACKEND=ollama
+OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3.5:9b
+LLM_TIMEOUT_SECONDS=240
+```
+
+The alternative MiMo path requires a valid `OPENAI_API_KEY` and configured endpoint;
+see [the demo guide](docs/demo.md). Never commit `.env`.
 
 Activate the environment:
 
@@ -61,10 +72,10 @@ The demo stores vectors and checkpoints under `.demo-runtime/`, uses collection 
 ## What the project demonstrates
 
 - **Retrieval:** BGE-M3 dense and sparse embeddings, Qdrant hybrid retrieval and a BGE cross-encoder reranker. Explore exposes P2 hybrid and P3 reranked search.
-- **Agent control flow:** query routing, evidence grading, bounded rewriting and answer regeneration. Ask always uses the full agent workflow.
+- **Agent control flow:** component search planning, coverage across sources, single-study source constraints, evidence grading and bounded answer repair. Ask always uses the full [agent workflow](docs/agent-workflow.md).
 - **Inspectable answers:** source-linked citations, passage context and streamed node activity. A model evidence check is a self-assessment, not a guarantee of factual or clinical correctness.
 - **Failure handling:** bounded LLM calls, response deadlines, one terminal stream result, cancellation between nodes and isolation between individual requests.
-- **Reproducibility:** dependency lock, frozen corpus hashes, a claim-level 50-question benchmark, offline regression tests and inspectable evaluation artifacts.
+- **Reproducibility:** dependency lock, frozen corpus hashes, a claim-level 50-question benchmark, saved real answers and an offline command to recompute their metrics.
 
 ```mermaid
 flowchart LR
@@ -91,20 +102,36 @@ The v1.1 audit retained 39 contracts and revised 11. `qwen3.5:9b` generated a fr
 
 The real production Agent graph was run on development only with `qwen3.5:9b`, BGE-M3 hybrid retrieval and CUDA reranking. The test split remains untouched.
 
-| Development result | Score |
-|---|---:|
-| Required-claim Recall@5, 13 answerable questions | 88.5% |
-| All required claims found@5 | 84.6% |
-| nDCG@5 / MRR@5 | 0.8933 / 0.9231 |
-| Claim completeness / citation coverage | 90.0% / 90.0% |
-| Claim-support precision | 100.0% |
-| Answerability score | 80.0% |
-| Strict passes | **5/15 (33.3%)** |
-| Mean end-to-end latency | 85.1 s |
+| Development result | v0.2 baseline | v0.3 |
+|---|---:|---:|
+| Required-claim Recall@5, 13 answerable questions | 88.5% | **100.0%** |
+| All required claims found@5 | 11/13 | **13/13** |
+| nDCG@5 / MRR@5 | 0.8933 / 0.9231 | 0.9546 / 0.9487 |
+| Mapped core-claim completeness / citation coverage | 90.0% / 90.0% | 100.0% / 100.0% |
+| Answerability score | 80.0% | **93.3%** |
+| Missing required qualifiers per question | 1.27 | **0.33** |
+| Unsupported or incorrectly scoped additions | 0 | **2** |
+| Strict passes | 5/15 (33.3%) | **10/15 (66.7%)** |
+| Mean end-to-end latency | 85.1 s | 91.3 s |
 
-The Agent's own faithfulness checker passed 15/15, but source-first adjudication found two missing cross-document answers, seven answers with omitted required qualifiers, one partial answer that did not state its evidence boundary, and failures on both unanswerable questions. The gap is a measured system weakness, not a benchmark score to hide.
+The final v0.3 figures come from one complete run at `82e02ab`, followed by Codex source-first
+adjudication of all 15 answers. They are development results, not clinician-reviewed or unseen-test
+accuracy. The Agent's own checker passed 14/15; it missed the five strict failures and rejected one
+content-correct answer. Two extra statements remain unsupported or incorrectly scoped, so the
+zero-unsupported-claim target is not met. Core-claim coverage does not imply qualifier completeness.
 
-[v1.1 report](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl) · [Per-item adjudications](data/benchmark/veritasmed_v1_1/model_adjudications.jsonl) · [Development baseline manifest](data/benchmark/veritasmed_v1_1/baseline_agent_dev_manifest.json)
+[v0.3 report](docs/agent-v0.3-report.md) · [All 15 real answers and evidence](docs/agent-v0.3-cases.md) · [Original v1.1 baseline](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl)
+
+Recompute the saved scores without a model, GPU, raw corpus or full backend installation:
+
+```sh
+python -m pip install "pydantic>=2.7,<3"
+python scripts/benchmark/recompute_saved_agent.py
+```
+
+This reapplies the published assessments and metric arithmetic; it does not independently judge
+new answers. [The run manifest](data/benchmark/veritasmed_v1_1/agent_v03_dev_manifest.json) records
+the code, model and file hashes. Dataset maintenance commands remain available:
 
 ```sh
 python scripts/benchmark/freeze_v1_1.py
@@ -169,12 +196,12 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 | `src/medrag/index/`, `src/medrag/retrieval/` | Embeddings, indexing and search |
 | `frontend/` | React interface and labelled browser fixtures |
 | `data/demo/` | Small authored demonstration corpus |
-| `data/benchmark/veritasmed_v1_1/` | Active source-disjoint benchmark, reviews and production-Agent baseline |
+| `data/benchmark/veritasmed_v1_1/` | Frozen benchmark, reviews, original baseline and v0.3 Agent outputs |
 | `data/benchmark/veritasmed_v1/` | Preserved historical v1 benchmark and component baselines |
 | `data/eval/`, `data/golden/` | Historical evaluation artifacts and question sets |
 | `tests/` | Offline behavior and contract regressions |
 | `docs/` | Audit, plan, evaluation, validation and release notes |
 
-[Demo walkthrough / optional Docker](docs/demo.md) · [v0.2.0 release notes](docs/releases/v0.2.0.md) · [Changelog](CHANGELOG.md) · [Benchmark plan](docs/superpowers/plans/2026-09-20-veritasmed-benchmark-v1.1-audit.md)
+[Demo walkthrough / optional Docker](docs/demo.md) · [v0.3.0 release notes](docs/releases/v0.3.0.md) · [Changelog](CHANGELOG.md) · [Implementation plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.3.md)
 
-Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The next research milestone is stronger claim-boundary enforcement on the new development set, followed by a paired agent-versus-plain-RAG comparison and separately validated live deployment path.
+Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The next improvement is an answer outline that binds each requested component to its study, evidence span and missing qualifiers, followed by repeat-run development measurements before using the untouched test split.
