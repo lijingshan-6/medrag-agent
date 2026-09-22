@@ -61,11 +61,11 @@ MRR@20 对首条命中证据的名次取倒数，再对题目取平均；未命�
 
 | 输入文件 | SHA-256 |
 |---|---|
-| `data/eval/agent_eval_hard_v4.json` | `218976e5f21906fdbeb1103b7b606043f865a77afc0917bd74bd38318e665a3b` |
+| `data/eval/agent_eval_hard_v4.json` | `3ab451541670196b0c053bb79a8121384ab69f47f11b963f2d3feeaeb1a1accf` |
 | `data/eval/agent_eval_v2_strict.json` | `1f7a0f3bd4429f36f01fadc46dc200ca6cffbf7e1952f064294b047a8467c252` |
-| `data/eval/retrieval_eval_v2_gpu.json` | `b63935f434ce9c73c08bc930c056f3cb203d16cc1b04675a4f21a4d785ced5e2` |
-| `data/golden/golden_dataset.jsonl` | `66b9b13f4517169d7566c140282b48a24e9c7899b63696da844cb1463b1d0999` |
-| `data/golden/golden_hard.jsonl` | `bbaefa72d59a34717083cce921dcf4f6bde5ada3b9b491cd9b4e432e3b3c97c0` |
+| `data/eval/retrieval_eval_v2_gpu.json` | `319e7e0341d7f27e75cce5065628c56393b0d1e60dc7db342455fed2ece9ffb9` |
+| `data/golden/golden_dataset.jsonl` | `644748fa6453507f3b87ce87e0e73f0157c886791233034c261d00ef5094ead8` |
+| `data/golden/golden_hard.jsonl` | `33ee0351a484b103b231f92ab0a0afb5d499189410827e508d9df77d3f7b6092` |
 
 重新生成：`python scripts/report_release.py`。检查工作树报告是否与输入一致：
 `python scripts/report_release.py --check`。两个命令都不会改写历史评估 JSON。
