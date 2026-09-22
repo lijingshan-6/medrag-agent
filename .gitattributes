@@ -7,6 +7,7 @@
 *.lock text eol=lf
 *.sha256 text eol=lf
 *.png binary
+data/benchmark/veritasmed_v1_1/*_log.txt text eol=lf
 
 # Preserve immutable historical artifact bytes and their recorded hashes.
 data/eval/*.json -text

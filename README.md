@@ -6,8 +6,9 @@ VeritasMed connects a React interface to a LangGraph agent: retrieve literature 
 
 **v0.4 development candidate** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
-This candidate adds component-level evidence and explicit gaps. Its effect evaluation is in progress;
-the [published v0.3.0](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0) remains the measured baseline below.
+This candidate adds component-level evidence, explicit gaps and source navigation. Its development
+evaluation is complete, but the planned answer-quality targets were not reached. The comparison below
+retains the [published v0.3.0](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0) baseline and all failures.
 
 ![VeritasMed guided example: partial evidence coverage and source-linked answer](docs/assets/v04-evidence-coverage.png)
 
@@ -16,6 +17,10 @@ the [published v0.3.0](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0)
 ## Try the interface without a key
 
 Only Node.js is needed for this first path:
+
+The clone command downloads published `main` (v0.3). This v0.4 candidate is currently local;
+to try it now, use its existing checkout and run the frontend commands there. When using a
+downloaded candidate snapshot, skip cloning and start in that snapshot's directory.
 
 ```sh
 git clone https://github.com/lijingshan-6/medrag-agent.git
@@ -30,7 +35,7 @@ Guided mode runs in the browser. It uses fixed authored answers and text matchin
 
 ## Run real retrieval and the agent
 
-Requirements: Python **3.12**, Node.js **22.12+**, and [uv](https://docs.astral.sh/uv/). Initial installation and model downloads require internet access and several GB of disk space. The locked environment uses CPU PyTorch; GPU setup is outside this release's verified path.
+Requirements: Python **3.12**, Node.js **22.12+**, and [uv](https://docs.astral.sh/uv/). Initial installation and model downloads require internet access and several GB of disk space. The locked Python environment uses CPU PyTorch for retrieval; Ollama can independently use an available GPU for generation. Installing CUDA PyTorch for retrieval is outside the verified quick-start.
 
 From the repository root:
 
@@ -70,7 +75,12 @@ The launcher indexes the bundled summaries with BGE-M3, starts the API and front
 
 The demo stores vectors and checkpoints under `.demo-runtime/`, uses collection `medrag_demo`, and does not reset the research collection `medrag_text`. **Explore works without an LLM key** after the models and fixture are installed. Live Ask also needs valid model access. The fixture contains three authored summaries about fastMRI and fastMRI+, not the original articles, medical records or MRI files; see its [provenance](data/demo/README.md).
 
-**Verified here:** Windows, Python 3.12, CPU indexing, CUDA reranking, the production Agent graph with local Ollama `qwen3.5:9b`, local review with `medgemma1.5:4b`, API document access, frontend build and browser interactions. Docker, the MiMo cloud path and macOS/Linux execution remain unverified. Read the [v1.1 benchmark report](docs/benchmark-v1.1-report.md) and [validation record](docs/validation-2026-09-18.md) before treating this as a deployment recipe.
+**Tried from a fresh directory:** Windows, Python 3.12.7, all 163 locked CPU dependencies, indexing,
+API/frontend startup and a real Ollama `qwen3.5:9b` answer with a visible evidence gap and working
+source navigation. That demo answer took 57.48 seconds; model downloads were cached. The separate
+research benchmark used CPU embeddings and CUDA reranking. `medgemma1.5:4b` helped review the
+dataset earlier; it did not independently score these v0.4 answers. Docker, MiMo and macOS/Linux
+execution remain unverified. See the [v0.4 report](docs/agent-v0.4-report.md) for the measured limits.
 
 ## What the project demonstrates
 
@@ -105,36 +115,46 @@ The v1.1 audit retained 39 contracts and revised 11. `qwen3.5:9b` generated a fr
 
 The real production Agent graph was run on development only with `qwen3.5:9b`, BGE-M3 hybrid retrieval and CUDA reranking. The test split remains untouched.
 
-| Development result | v0.2 baseline | v0.3 |
+| Development result | v0.3 | v0.4 candidate |
 |---|---:|---:|
-| Required-claim Recall@5, 13 answerable questions | 88.5% | **100.0%** |
-| All required claims found@5 | 11/13 | **13/13** |
-| nDCG@5 / MRR@5 | 0.8933 / 0.9231 | 0.9546 / 0.9487 |
-| Mapped core-claim completeness / citation coverage | 90.0% / 90.0% | 100.0% / 100.0% |
-| Answerability score | 80.0% | **93.3%** |
-| Missing required qualifiers per question | 1.27 | **0.33** |
-| Unsupported or incorrectly scoped additions | 0 | **2** |
-| Strict passes | 5/15 (33.3%) | **10/15 (66.7%)** |
-| Mean end-to-end latency | 85.1 s | 91.3 s |
+| Required-claim Recall@5, 13 answerable questions | 100.0% | 96.2% |
+| All required claims found@5 | 13/13 | 12/13 |
+| nDCG@5 / MRR@5 | 0.9546 / 0.9487 | 0.9467 / 0.9487 |
+| Mapped core-claim completeness / citation coverage | 100.0% / 100.0% | 96.7% / 96.7% |
+| Answerability score | 93.3% | 93.3% |
+| Missing required qualifiers, total | 5 | 2 |
+| Unsupported or incorrectly scoped additions | 2 | 3 |
+| Strict passes | 10/15 (66.7%) | **9/15 (60.0%)** |
+| Execution errors | 0 | 1 |
+| Mean retained-attempt latency | 91.3 s | 84.8 s |
 
-The final v0.3 figures come from one complete run at `82e02ab`, followed by Codex source-first
-adjudication of all 15 answers. They are development results, not clinician-reviewed or unseen-test
-accuracy. The Agent's own checker passed 14/15; it missed the five strict failures and rejected one
-content-correct answer. Two extra statements remain unsupported or incorrectly scoped, so the
-zero-unsupported-claim target is not met. Core-claim coverage does not imply qualifier completeness.
+The v0.4 implementation at `a945a8f` was run twice on six focus questions (**5/6** and **4/6**),
+then separately on all 15 development questions. The full run was paused at the user's request after
+six answers and resumed with those answers unchanged. No answers were selected across runs. Latency
+includes failed attempts and the extra cold startup, but excludes the pause and an interrupted
+pre-answer attempt. Full-run VMG-042 and focus B's VMG-014 returned no answer after invalid structured
+output; their times were 227.0 and 381.2 seconds. The web API has a 300-second deadline.
 
-[v0.3 report](docs/agent-v0.3-report.md) · [All 15 real answers and evidence](docs/agent-v0.3-cases.md) · [Original v1.1 baseline](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl)
+**Answer quality has not improved overall in this run.** The planned 13/15 target was missed.
+Within-study sample scope, a refusal rationale and required comparison details remain problematic;
+one second study was not retrieved. These failures are retained in the reports. All decisions were
+made by Codex against frozen source passages, without independent clinician review. The model's own
+check passed 11/15 and missed three strict failures; it is not the scoring authority. The **35-question
+test split remains unused**, and neither it nor the scoring rules was changed to rescue the result.
+
+[v0.4 report](docs/agent-v0.4-report.md) · [All 15 real attempts and evidence](docs/agent-v0.4-cases.md) · [Focus A](docs/agent-v0.4-focus-a-cases.md) · [Focus B](docs/agent-v0.4-focus-b-cases.md) · [v0.3 comparison](docs/agent-v0.3-report.md) · [v1.1 dataset and v0.2 baseline](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl)
 
 Recompute the saved scores without a model, GPU, raw corpus or full backend installation:
 
 ```sh
 python -m pip install "pydantic>=2.7,<3"
-python scripts/benchmark/recompute_saved_agent.py
+python scripts/benchmark/recompute_saved_agent.py --version v0.4
 ```
 
-This reapplies the published assessments and metric arithmetic; it does not independently judge
-new answers. [The run manifest](data/benchmark/veritasmed_v1_1/agent_v03_dev_manifest.json) records
-the code, model and file hashes. Dataset maintenance commands remain available:
+Omit `--version` to reproduce the preserved v0.3 default. This reapplies the published assessments and
+metric arithmetic; it does not independently judge new answers. [The v0.4 manifest](data/benchmark/veritasmed_v1_1/agent_v04_manifest.json)
+records all three runs, settings, hashes and the pause/resume provenance.
+Dataset maintenance commands remain available:
 
 ```sh
 python scripts/benchmark/freeze_v1_1.py
@@ -199,14 +219,14 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 | `src/medrag/index/`, `src/medrag/retrieval/` | Embeddings, indexing and search |
 | `frontend/` | React interface and labelled browser fixtures |
 | `data/demo/` | Small authored demonstration corpus |
-| `data/benchmark/veritasmed_v1_1/` | Frozen benchmark, reviews, original baseline and v0.3 Agent outputs |
+| `data/benchmark/veritasmed_v1_1/` | Frozen benchmark, reviews, baseline and v0.3/v0.4 Agent outputs |
 | `data/benchmark/veritasmed_v1/` | Preserved historical v1 benchmark and component baselines |
 | `data/eval/`, `data/golden/` | Historical evaluation artifacts and question sets |
 | `tests/` | Offline behavior and contract regressions |
 | `docs/` | Audit, plan, evaluation, validation and release notes |
 
-[Demo walkthrough / optional Docker](docs/demo.md) · [v0.3.0 release notes](docs/releases/v0.3.0.md) · [Changelog](CHANGELOG.md) · [Completed v0.3 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.3.md) · [Next: v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md)
+[Demo walkthrough / optional Docker](docs/demo.md) · [v0.4 candidate notes](docs/releases/v0.4.0-candidate.md) · [Changelog](CHANGELOG.md) · [v0.3 release](docs/releases/v0.3.0.md) · [v0.4 plan and outcome](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md)
 
 Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). See the
 [v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md) and
-[implementation record](docs/agent-v0.4-worklog.md) for completed work and remaining effect evaluation.
+[implementation record](docs/agent-v0.4-worklog.md) for completed work and unresolved answer-quality problems.

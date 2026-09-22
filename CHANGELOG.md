@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-09-22 (unpublished development candidate)
+
+- Bind each answer component to its requested study, exact source quotation, required details and explicit evidence gap.
+- Match study identity before drafting, preserve supported components during targeted repair, and restore omitted numeric details as attributed source quotations.
+- Show complete, partial and insufficient evidence coverage with expandable quotations and source navigation. Guided examples remain labelled fixtures.
+- Normalize Ollama wildcard listening addresses for Windows client connections; exercise a real partial answer after installing the locked demo in a fresh directory.
+- Preserve two independent six-question repetitions (5/6 and 4/6 strict passes) and a separate full development run (9/15, 1 execution error). Publish every answer, source-first decision, log and timing, including failures and the user-requested pause/resume.
+- Add `recompute_saved_agent.py --version v0.4`; the existing v0.3 default remains compatible.
+- **Quality targets not met:** 3 unsupported or incorrectly scoped additions, 2 missing required qualifiers and only 12/13 answerable questions with all evidence retrieved. No overall answer-quality improvement is claimed. The 35-question test split remains unused.
+
+Implementation and demonstration are available in the candidate branch; no stable v0.4 tag or GitHub publication is implied.
+
 ## 0.3.0 — 2026-09-22 (local showcase candidate)
 
 - Plan component searches and retain evidence across requested sources; constrain single-study answers to the leading source.

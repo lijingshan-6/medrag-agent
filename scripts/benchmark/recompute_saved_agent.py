@@ -1,4 +1,4 @@
-"""Recompute the saved v0.3 development metrics; requires only Python and Pydantic."""
+"""Recompute saved Agent metrics; requires only Python and Pydantic."""
 
 from __future__ import annotations
 
@@ -17,12 +17,20 @@ def main() -> None:
     default_dir = ROOT / "data/benchmark/veritasmed_v1_1"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--questions", type=Path, default=default_dir / "questions.jsonl")
-    parser.add_argument("--answers", type=Path, default=default_dir / "agent_v03_dev_raw.json")
-    parser.add_argument("--assessments", type=Path, default=default_dir / "answer_assessment_overrides_v03_dev.jsonl")
+    parser.add_argument("--answers", type=Path, help="Override the selected version's saved answers")
+    parser.add_argument("--assessments", type=Path, help="Override the selected version's assessments")
     parser.add_argument("--output", type=Path, help="Optional JSON report path; otherwise print metrics only")
     parser.add_argument("--cases", type=Path, help="Optional Markdown file with every answer and gold evidence")
-    parser.add_argument("--version", default="v0.3", help="Version label for the optional cases page")
+    parser.add_argument(
+        "--version",
+        choices=["v0.3", "v0.4"],
+        default="v0.3",
+        help="Saved development version (default: v0.3 for compatibility)",
+    )
     args = parser.parse_args()
+    suffix = args.version.replace(".", "")
+    args.answers = args.answers or default_dir / f"agent_{suffix}_dev_raw.json"
+    args.assessments = args.assessments or default_dir / f"answer_assessment_overrides_{suffix}_dev.jsonl"
     report = recompute_saved_run(args.questions, args.answers, args.assessments)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
