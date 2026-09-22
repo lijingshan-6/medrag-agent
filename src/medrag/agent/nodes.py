@@ -261,10 +261,101 @@ def _filter_requirements_for_query(query: str, requirements: list[str]) -> list[
     query_terms = _content_terms(query)
     if not query_terms:
         return requirements
+    asks_for_boundary = bool(
+        re.search(
+            r"\b(why|limitation|limitations|boundary|boundaries|unanswered|untested|"
+            r"unknown|unclear|establish|establishes|prove|proves|causal|causality)\b",
+            query,
+            re.IGNORECASE,
+        )
+    )
     filtered = [
-        item for item in requirements if query_terms.intersection(_content_terms(item))
+        item
+        for item in requirements
+        if query_terms.intersection(_content_terms(item))
+        and (
+            asks_for_boundary
+            or not re.search(
+                r"\b(evidence boundar(?:y|ies)|limitations?)\b",
+                item,
+                re.IGNORECASE,
+            )
+        )
     ]
     return filtered or requirements
+
+
+def _matching_requirements_for_query(query: str, requirements: list[str]) -> list[str]:
+    """Keep only planner requirements that retain a concrete term from the question."""
+
+    query_terms = _content_terms(query)
+    if not query_terms:
+        return requirements
+    return [
+        item for item in requirements if query_terms.intersection(_content_terms(item))
+    ]
+
+
+def _targets_one_named_source(query: str) -> bool:
+    """Detect common one-study questions that a small router may over-split.
+
+    A question can ask for methods plus results, or findings plus an evidence gap,
+    without requiring a second paper. Keeping that distinction deterministic prevents
+    a topically similar article from filling a missing component.
+    """
+
+    text = " ".join(query.casefold().split())
+    repeated_study = bool(
+        re.search(r"\b(study|trial|cohort)\b.*\band\b.*\b\1\b", text)
+    )
+    plural_sources = bool(
+        re.search(r"\b(studies|trials|cohorts|papers|sources)\b", text)
+    )
+    named_study = bool(
+        re.search(r"\b(study|trial|cohort|pilot|nomogram)\b", text)
+    )
+    one_model_build = bool(re.match(r"^how was .+\bbuilt and validated\b", text))
+    unanswered_followup = bool(
+        re.search(r"\bremains? (?:untested|unanswered|unknown|unclear)\b", text)
+    )
+    return (named_study and not repeated_study and not plural_sources) or (
+        one_model_build or unanswered_followup
+    )
+
+
+def _ensure_explicit_query_components(query: str, requirements: list[str]) -> list[str]:
+    """Restore high-value outcome components that the grading model omitted."""
+
+    additions: list[str] = []
+    cue_requirements = (
+        (
+            r"\btoxicit(?:y|ies)\b",
+            "toxicit",
+            "Report toxicities, grade, events, and rates.",
+            r"\bgrade\b|\d",
+        ),
+        (
+            r"\badverse (?:event|events|effect|effects)\b",
+            "adverse event",
+            "Report the requested adverse events, including counts and rates.",
+            r"\b(count|rate|occurred|including)\b|\d",
+        ),
+        (
+            r"\bconfidence interval(?:s)?\b|\b95% ci\b",
+            "confidence interval",
+            "Report the requested confidence interval.",
+            r"\d",
+        ),
+    )
+    for pattern, presence_key, requirement, concrete_pattern in cue_requirements:
+        has_concrete_requirement = any(
+            presence_key in item.casefold()
+            and re.search(concrete_pattern, item, re.IGNORECASE)
+            for item in requirements
+        )
+        if re.search(pattern, query, re.IGNORECASE) and not has_concrete_requirement:
+            additions.append(requirement)
+    return _unique_texts([*requirements, *additions], limit=8)
 
 
 def _expand_requirements_from_context(
@@ -277,7 +368,8 @@ def _expand_requirements_from_context(
 
     sentences: list[tuple[str, str]] = []
     for chunk in chunks:
-        plain = re.sub(r"<[^>]+>", "", chunk.text)
+        # Strip actual markup only: a statistical '< .001' is not an HTML tag.
+        plain = re.sub(r"</?[A-Za-z][A-Za-z0-9]*(?:\s+[^<>]*)?\s*/?>", "", chunk.text)
         sentences.extend(
             (chunk.citation, sentence.strip())
             for sentence in re.split(r"(?<=[.!?])\s+", plain)
@@ -306,8 +398,10 @@ def _expand_requirements_from_context(
         )
         for index, (source, sentence) in enumerate(sentences):
             score = float(len(terms.intersection(_content_terms(sentence))))
+            requirement_numbers = set(re.findall(r"\d+(?:\.\d+)?", requirement))
             numeric_tokens = re.findall(r"\d+(?:\.\d+)?", sentence)
             score += min(len(numeric_tokens), 6) * 0.2
+            score += min(len(requirement_numbers.intersection(numeric_tokens)), 2) * 2.0
             if re.search(r"\bp\s*(?:=|<|>)", sentence, re.IGNORECASE):
                 score += 2.0
             if change_intent and re.search(
@@ -394,6 +488,8 @@ def route_query(state: AgentState) -> dict:
             source_scope = "multi_source"
         else:
             source_scope = "general"
+    if source_scope == "multi_source" and _targets_one_named_source(query):
+        source_scope = "single_study"
     answer_mode = str(parsed.get("answer_mode", "")).strip().lower()
     evidence_boundary = bool(
         re.match(r"^\s*(does|do|did|has|have|can|is|are)\b", query, re.IGNORECASE)
@@ -523,15 +619,21 @@ def grade_relevance(state: AgentState) -> dict:
         query,
         _unique_texts(parsed.get("required_details", []), limit=8),
     )
-    existing_requirements = _filter_requirements_for_query(
-        query,
-        _unique_texts(state.get("answer_requirements", []), limit=8),
+    existing_requirements = _unique_texts(
+        state.get("answer_requirements", []),
+        limit=8,
     )
+    matching_existing = _matching_requirements_for_query(query, existing_requirements)
+    merged_requirements = _unique_texts(
+        [*required_details, *matching_existing],
+        limit=8,
+    ) or existing_requirements
+    merged_requirements = _ensure_explicit_query_components(query, merged_requirements)
     if answer_mode == "evidence_boundary":
-        final_requirements = existing_requirements
+        final_requirements = matching_existing or existing_requirements
     else:
         final_requirements = _expand_requirements_from_context(
-            required_details or existing_requirements,
+            merged_requirements,
             chunks,
             query=query,
         )

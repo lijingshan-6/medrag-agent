@@ -19,8 +19,10 @@ ROUTER_SYSTEM = (
     "including requested comparators, time points, numerical estimates, uncertainty, or evidence gaps. "
     "Derive requirements only from the user's wording: do not invent example endpoints, metrics, "
     "effect measures, subgroups, or study details. Set source_scope to single_study when the user "
-    "asks what one named or supplied study establishes, multi_source when separate sources must be "
-    "combined, otherwise general. "
+    "asks what one named or supplied study establishes, including questions that ask for several "
+    "methods, outcomes, or an unanswered follow-up from that same study. A comparison inside one "
+    "study is still single_study. Use multi_source only when separate named studies, methods from "
+    "different papers, or interventions from different papers must be combined; otherwise general. "
     "Set answer_mode to evidence_boundary for questions asking whether a named study establishes, "
     "shows, proves, reduces, or improves a requested outcome; use compare for explicit comparisons, "
     "otherwise direct. "
@@ -135,7 +137,10 @@ missing outcome in the named study. For `multi_source`, keep each result attache
 values, retain the change magnitude and uncertainty; do not substitute endpoint values alone.
 12. For `evidence_boundary`, answer only whether the named study establishes the exact requested
 outcome. If that outcome or comparator is absent, use `insufficient`, return no adjacent-result
-claims, and name every requested outcome that the study does not establish."""
+claims, and name every requested outcome that the study does not establish.
+13. If a required component names a comparison group or comparator value, state it explicitly.
+Words such as `comparable`, `higher`, or `lower` cannot replace the named reference group or its
+reported value."""
 
 GENERATE_USER = """\
 Question: {query}
@@ -208,7 +213,9 @@ CHECK_SYSTEM = (
     "sample sizes, time points, numerical estimates and uncertainty when present; "
     "(3) boundary_correct: when the requested comparison or outcome is absent, the answer "
     "explicitly says so and does not substitute adjacent findings. A concise evidence-boundary "
-    "answer can be complete. Output ONLY valid JSON:\n"
+    "answer can be complete. When requirements name a comparison group or comparator value, "
+    "an answer about only one group is incomplete; words such as comparable, higher, or lower "
+    "do not replace the named comparator. Output ONLY valid JSON:\n"
     '{"supported": true, "complete": true, "boundary_correct": true, '
     '"issues": "specific correction instructions, or empty string only when all three pass"}'
 )

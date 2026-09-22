@@ -305,6 +305,62 @@ class TestNodeTransformations:
 
         assert result["answer_mode"] == "direct"
 
+    def test_route_keeps_one_named_model_with_build_and_validation_in_one_source(
+        self, sample_state
+    ):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"type":"synthesis","source_scope":"multi_source",'
+                '"answer_mode":"compare","reason":"build and performance",'
+                '"search_queries":["SCAR-Net architecture","SCAR-Net validation"],'
+                '"answer_requirements":["How SCAR-Net was built",'
+                '"How SCAR-Net changed radiologist performance"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": (
+                "How was SCAR-Net built and validated for distinguishing postoperative "
+                "breast scars from recurrent lesions, and how much did it change "
+                "radiologist performance?"
+            ),
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(state)
+
+        assert result["source_scope"] == "single_study"
+
+    def test_route_keeps_unanswered_effect_with_the_named_workflow(self, sample_state):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"type":"synthesis","source_scope":"multi_source",'
+                '"answer_mode":"compare","reason":"result and gap",'
+                '"search_queries":["prostate MRI AI triage performance",'
+                '"prostate MRI real-world effect"],'
+                '"answer_requirements":["Report sensitivity and specificity",'
+                '"State what remains untested"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": (
+                "What sensitivity-specificity tradeoff did simulated prostate-MRI AI "
+                "triage show, and what real-world clinical effect remains untested?"
+            ),
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(state)
+
+        assert result["source_scope"] == "single_study"
+
     def test_hybrid_retrieve_runs_each_planned_query_and_merges_chunks(self, sample_state):
         from medrag.agent.nodes import hybrid_retrieve
 
@@ -507,7 +563,7 @@ class TestNodeTransformations:
         # relevant=true should bump score to at least GRADE_THRESHOLD
         assert result["relevance_score"] >= 0.6
 
-    def test_grade_replaces_router_requirements_with_exact_evidence_details(self, sample_state):
+    def test_grade_merges_question_requirements_with_exact_evidence_details(self, sample_state):
         from medrag.agent.nodes import grade_relevance
 
         mock_llm = MagicMock()
@@ -521,7 +577,8 @@ class TestNodeTransformations:
         )
         state = {
             **sample_state,
-            "answer_requirements": ["An invented router example"],
+            "query": "What change and toxicity did the treatment study report?",
+            "answer_requirements": ["Report the treatment toxicity"],
         }
 
         with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
@@ -530,7 +587,43 @@ class TestNodeTransformations:
         assert result["answer_requirements"] == [
             "Report the 0.37 mm2 increase with P=0.010",
             "Report the 0.70 mm2 decrease with P<0.001",
+            "Report the treatment toxicity",
+            "Report toxicities, grade, events, and rates.",
         ]
+
+    def test_grade_restores_explicit_toxicity_component_when_grader_omits_it(
+        self, sample_state
+    ):
+        from medrag.agent.nodes import grade_relevance
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            (
+                "Median total treatment time was 28 min. "
+                "No grade 3 or higher toxicities occurred; grade 2 events occurred in 10.3%."
+            ),
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"relevant":true,"score":0.95,"reason":"complete",'
+                '"rewrite_hint":"","required_details":['
+                '"Median total treatment time was 28 min"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": "What treatment-time and toxicity results were reported?",
+            "retrieved_chunks": [chunk],
+            "answer_requirements": ["Report treatment time and toxicity results"],
+        }
+
+        with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
+            result = grade_relevance(state)
+
+        assert any("10.3%" in item for item in result["answer_requirements"])
 
     def test_requirement_filter_drops_details_unrelated_to_question(self):
         from medrag.agent.nodes import _filter_requirements_for_query
@@ -548,6 +641,19 @@ class TestNodeTransformations:
             "Prostate MRI sensitivity and specificity changed with AI",
             "Breast ultrasound AUC changed with AI",
         ]
+
+    def test_requirement_filter_drops_unasked_generic_evidence_boundary(self):
+        from medrag.agent.nodes import _filter_requirements_for_query
+
+        result = _filter_requirements_for_query(
+            "In the cross-sectional pilot, what cardiac MRI findings were reported?",
+            [
+                "Report the cardiac MRI findings from the pilot",
+                "Evidence boundaries regarding the pilot study's conclusions",
+            ],
+        )
+
+        assert result == ["Report the cardiac MRI findings from the pilot"]
 
     def test_requirement_expansion_restores_statistics_from_supporting_sentence(self):
         from medrag.agent.nodes import _expand_requirements_from_context
@@ -571,6 +677,27 @@ class TestNodeTransformations:
 
         assert "p = 0.010" in result[0]
 
+    def test_requirement_expansion_uses_shared_number_to_restore_confidence_interval(self):
+        from medrag.agent.nodes import _expand_requirements_from_context
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            (
+                "The nomogram reported an AUC of 0.866 (95% CI 0.837-0.895), "
+                "sensitivity of 70.33%, and specificity of 85.89%."
+            ),
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+
+        result = _expand_requirements_from_context(
+            ["Discrimination: area under the curve = 0.866"],
+            [chunk],
+            query="What discrimination did the thrombosis nomogram report?",
+        )
+
+        assert "95% CI 0.837-0.895" in result[0]
+
     def test_how_requirement_expansion_includes_adjacent_method_sentence(self):
         from medrag.agent.nodes import _expand_requirements_from_context
 
@@ -592,6 +719,19 @@ class TestNodeTransformations:
         )
 
         assert "Through-plane and in-plane" in result[0]
+
+    def test_requirement_expansion_preserves_inequalities_between_html_tags(self):
+        from medrag.agent.nodes import _expand_requirements_from_context
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            "Specificity increased to 69.2% (<i>P</i> < .001). <b>Keywords:</b> MRI.",
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+        result = _expand_requirements_from_context(["Specificity increased to 69.2%"], [chunk])
+
+        assert result == ["Specificity increased to 69.2% (P < .001)."]
 
     def test_how_requirement_expansion_never_crosses_source_boundary(self):
         from medrag.agent.nodes import _expand_requirements_from_context
