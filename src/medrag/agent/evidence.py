@@ -55,6 +55,50 @@ def _has_population_count(text: str) -> bool:
     ))
 
 
+_COHORT_ROLES = {
+    "development": r"\b(develop\w*|train\w*)\b",
+    "calibration": r"\bcalibrat\w*\b",
+    "validation": r"\bvalidat\w*\b",
+    "test": r"\btest(?:ed|ing)?\b",
+}
+_METHOD_STEPS = re.compile(r"\b(combin(?:ed|es)|incorporat(?:e|ed|es)|us(?:e|ed|es)|calculated|optimi[sz]ed|applied)\b")
+
+
+def _population_counts(text: str) -> set[str]:
+    return {m.replace(",", "") for m in re.findall(
+        r"\b(\d[\d,]*)\s+(?:[\w-]+\s+){0,3}(?:patients?|participants?|controls?|veterans?|subjects?|women|men|children|volunteers?|births|images|examinations|animals?|mice|rats)\b",
+        normalized(text),
+    )}
+
+
+def population_scope_issue(text: str, component: dict) -> bool:
+    """A cohort count cannot lose its explicit development/test/etc. role.
+
+    This is a narrow guard for plainly labelled populations, not an entailment
+    score. Ambiguous sentences with several roles still need semantic review.
+    """
+    counts = _population_counts(text)
+    for span in component["evidence"]:
+        quote = normalized(span["quote"])
+        if not counts.intersection(_population_counts(quote)):
+            continue
+        roles = [role for role, pattern in _COHORT_ROLES.items() if re.search(pattern, quote)]
+        if len(roles) == 1 and not re.search(_COHORT_ROLES[roles[0]], normalized(text)):
+            return True
+    return False
+
+
+def _bounded_gap(requirement: str, basis: str = "") -> str:
+    # The missing component, not a free-form story about the underlying study,
+    # names the evidence gap. In particular no invented design/data rationale.
+    subject = re.sub(r"^(?:report\s+)?whether\s+|^report\s+", "", requirement, flags=re.I).rstrip('.?')
+    if basis == "outcome":
+        return f"The retrieved evidence does not provide outcome data establishing: {subject}."
+    if basis == "comparison":
+        return f"The retrieved evidence does not provide the required comparative data for: {subject}."
+    return f"The retrieved evidence does not establish: {subject}."
+
+
 def bind_components(
     raw: object, requirements: list[str], chunks: list[RetrievedChunk], study_context: object = None,
 ) -> list[dict]:
@@ -68,6 +112,7 @@ def bind_components(
     span_keys = list(spans)
     components = []
     for value in raw if isinstance(raw, list) else []:
+        missing_basis = value.get("missing_basis", "") if isinstance(value, dict) else ""
         if isinstance(value, dict) and "evidence_ids" in value:
             ids = value["evidence_ids"] if isinstance(value["evidence_ids"], list) else []
             chosen = [key for key in ids if isinstance(key, str) and key in spans]
@@ -103,20 +148,40 @@ def bind_components(
                     continue
                 valid.append(span.model_copy(update={"citation": chunk.citation}))
         lost_evidence = len(valid) != len(component.evidence)
+        # A 'how does this method address the problem' component needs actual
+        # method steps, not only the introductory purpose statement. Select
+        # method sentences from the same already-bound source, never another study.
+        method_requirement = re.search(r"\b(method\w*|technique\w*|reconstruction|filter\w*)\b", normalized(component.requirement))
+        outcome_requirement = re.search(r"\b(result\w*|validation|performance)\b", normalized(component.requirement))
+        if component.status != "missing" and method_requirement and not outcome_requirement:
+            bound_chunks = {s.chunk_id for s in valid}
+            for value in spans.values():
+                if value["chunk_id"] in bound_chunks and _METHOD_STEPS.search(normalized(value["quote"])):
+                    extra = EvidenceSpan.model_validate(value)
+                    if extra not in valid:
+                        valid.append(extra)
         component.evidence = valid
         # Required verbatim details must themselves be present in a bound quote.
         component.required_details = [
             detail for detail in component.required_details
             if normalized(detail) and any(normalized(detail) in normalized(s.quote) for s in valid)
         ]
+        for span in valid:
+            # Preserve a whole selected contrast, including its null result.
+            # A short positive half alone can reverse the meaning of a study.
+            contrast = re.search(r"\b(whereas|while|but|versus)\b", normalized(span.quote))
+            methods = (re.search(r"\b(how|method\w*|technique\w*|reconstruction|filter\w*)\b", normalized(component.requirement))
+                       and _METHOD_STEPS.search(normalized(span.quote)))
+            if (contrast or methods) and span.quote not in component.required_details:
+                component.required_details.append(span.quote)
         if not valid:
             if component.status != "missing":
                 component.gap = f"A source passage could not be bound reliably for: {component.requirement.rstrip('.?')}."
             component.status = "missing"
         elif lost_evidence and component.status == "supported":
             component.status = "partial"
-        if component.status != "supported" and not component.gap.strip():
-            component.gap = f"The retrieved evidence does not establish: {component.requirement.rstrip('.?')}."
+        if component.status != "supported":
+            component.gap = _bounded_gap(component.requirement, missing_basis)
         if component.status == "supported":
             component.gap = ""
         component.answer = ""
@@ -176,20 +241,13 @@ def outline_status(components: list[dict]) -> tuple[str, str]:
 
 
 def repair_gaps(components: list[dict], repairs: object, repair_ids: list[str]) -> list[dict]:
-    """Allow targeted repair of the explanation, without inventing support."""
-    by_id = {
-        item.get("component_id"): str(item.get("gap", "")).strip()
-        for item in repairs if isinstance(item, dict)
-    } if isinstance(repairs, list) else {}
-    result = []
-    for component in components:
-        component = dict(component)
-        gap = by_id.get(component["id"], "")
-        if (component["id"] in repair_ids and component["status"] != "supported" and gap
-                and not re.search(r"\b(answer|component|audit|must)\b", gap, re.I)):
-            component["gap"] = gap
-        result.append(component)
-    return result
+    """Keep the question-bound gap; free prose cannot add an unrequested outcome.
+
+    Kept as a compatibility helper for stored generation responses. Source
+    review can revise a component's evidence status, but generator gap_repairs
+    cannot silently change the question that the component is answering.
+    """
+    return [dict(component) for component in components]
 
 
 def bind_claims(claims: list[dict], components: list[dict]) -> tuple[list[dict], list[str]]:
@@ -199,6 +257,11 @@ def bind_claims(claims: list[dict], components: list[dict]) -> tuple[list[dict],
     for claim in claims:
         if not isinstance(claim, dict):
             continue
+        text = str(claim.get("text", ""))
+        if not text.startswith('The study reports: "'):
+            text = re.sub(r"\bwe\b", "the authors", text, flags=re.I)
+            text = re.sub(r"\bour\b", "their", text, flags=re.I)
+            claim = {**claim, "text": text}
         component = by_id.get(claim.get("component_id"))
         if component and component["status"] == "missing":
             # Missing components are rendered as explicit gaps, never as adjacent
@@ -209,6 +272,9 @@ def bind_claims(claims: list[dict], components: list[dict]) -> tuple[list[dict],
         if (not component or component["status"] == "missing" or not citations
                 or not isinstance(citations, list) or any(c not in allowed for c in citations)):
             issues.append(f"A claim has no matching component/source binding: {claim.get('text', '')}")
+            continue
+        if population_scope_issue(claim.get("text", ""), component):
+            issues.append(f"{component['id']}: a population count lost its development/calibration/test/validation role.")
             continue
         accepted.append(claim)
     for component in components:
@@ -243,6 +309,20 @@ def restore_numeric_quotes(components: list[dict], claims: list[dict]) -> list[d
     paraphrase. This does not infer an outcome or repair semantic contradictions.
     """
     missing = missing_numeric_details(components, claims)
+    for component in components:
+        if component["status"] == "missing":
+            continue
+        rendered = normalized(" ".join(c.get("text", "") for c in claims if c.get("component_id") == component["id"]))
+        for detail in component["required_details"]:
+            # Encoding/filter steps can be lost even when every digit survives.
+            # Restore selected verbatim method details when their content words
+            # are missing. This is deliberately conservative, not a semantic score.
+            if not _METHOD_STEPS.search(normalized(detail)):
+                continue
+            terms = set(re.findall(r"\b[a-z][a-z0-9-]{4,}\b", normalized(detail)))
+            if terms and sum(term in rendered for term in terms) / len(terms) < 0.85:
+                if detail not in missing.setdefault(component["id"], []):
+                    missing[component["id"]].append(detail)
     result = list(claims)
     for component in components:
         used = set()
@@ -253,4 +333,47 @@ def restore_numeric_quotes(components: list[dict], claims: list[dict]) -> list[d
                                "text": f'The study reports: "{span["quote"]}"',
                                "cite": [span["citation"]]})
                 used.add(span["quote"])
+    return result
+
+
+def preserve_result_context(components: list[dict], claims: list[dict]) -> list[dict]:
+    """Keep actors, denominators and qualifiers together in critical results.
+
+    A paraphrase containing all the digits can still change whose performance
+    was measured. For numerical/method components render the selected complete
+    source sentences. Other components retain their generated explanation.
+    This is extractive presentation, not an additional semantic judgment.
+    """
+    result = []
+    for component in components:
+        own = [c for c in claims if c.get("component_id") == component["id"]]
+        if component["status"] == "missing":
+            continue
+        if re.search(r"\b(causal\w*|limitation\w*|why|prevent\w*|cannot)\b", normalized(component["requirement"])):
+            # A design quotation supports an explanation but cannot replace it.
+            # The semantic checker still reviews that generated explanation.
+            result.extend(own)
+            continue
+        critical = any(re.search(r"\d", d) or _METHOD_STEPS.search(normalized(d))
+                       for d in component["required_details"])
+        if not critical:
+            result.extend(own)
+            continue
+        selected = []
+        for span in component["evidence"]:
+            if any(normalized(d) in normalized(span["quote"]) for d in component["required_details"]):
+                if span not in selected:
+                    selected.append(span)
+        if not selected:
+            result.extend(own)
+            continue
+        # A cited explanation is a separate claim, not a paraphrased estimate.
+        # Keep it for semantic review alongside the exact result sentences.
+        result.extend(c for c in own if not re.search(r"\d", c.get("text", ""))
+                      and re.search(r"\b(causal\w*|limitation\w*|cannot|does not establish|do not establish)\b", normalized(c.get("text", ""))))
+        # Preserve the source's text (including "we") inside explicit quotation
+        # marks. The answer therefore does not impersonate the study authors.
+        result.extend({"component_id": component["id"],
+                       "text": f'The study reports: "{span["quote"]}"',
+                       "cite": [span["citation"]]} for span in selected)
     return result

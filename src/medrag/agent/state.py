@@ -32,6 +32,12 @@ class AgentState(TypedDict):
     selected_sources: list[str]
     """Studies matched to the original question before constructing the outline."""
 
+    unmatched_source_queries: list[str]
+    """Requested source searches with no matching candidate; trigger bounded retrieval repair."""
+
+    source_queries: dict[str, list[str]]
+    """Focused question parts matched to each study, for separate evidence review."""
+
     answer_mode: str
     """Direct answer, cross-source comparison, or evidence-boundary decision."""
 

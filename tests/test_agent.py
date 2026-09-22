@@ -407,7 +407,9 @@ class TestNodeTransformations:
             "pubmed:2:0", "adjacent", 0.8, {"source": "pubmed", "doc_id": "2"}
         )
         reranker = MagicMock()
-        reranker.rerank_grouped.return_value = [target, adjacent]
+        reranker.rank_groups.return_value = [[adjacent, target]]
+        selector = MagicMock()
+        selector.invoke.return_value = MagicMock(content='{"source_ids":["PMID:1"]}')
         state = {
             **sample_state,
             "original_query": "What did the supplied study establish?",
@@ -418,10 +420,14 @@ class TestNodeTransformations:
             ],
         }
 
-        with patch("medrag.agent.nodes._get_reranker", return_value=reranker):
+        with patch("medrag.agent.nodes._get_reranker", return_value=reranker), patch(
+            "medrag.agent.nodes.make_llm_fast", return_value=selector,
+        ):
             result = rerank_chunks(state)
 
-        assert [chunk.chunk_id for chunk in result["retrieved_chunks"]] == ["pubmed:1:0", "pubmed:2:0"]
+        assert "PMID:2" in selector.invoke.call_args.args[0][1].content
+        assert reranker.rank_groups.call_args.args[0] == [("target study", [target, adjacent])]
+        assert result["retrieved_chunks"] == [target]
 
     def test_append_history_records_original_query_and_answer(self, sample_state):
         from medrag.agent.nodes import append_history

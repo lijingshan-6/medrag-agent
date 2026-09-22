@@ -23,12 +23,12 @@ def main() -> None:
     parser.add_argument("--cases", type=Path, help="Optional Markdown file with every answer and gold evidence")
     parser.add_argument(
         "--version",
-        choices=["v0.3", "v0.4"],
+        choices=["v0.3", "v0.4", "v0.4-repaired"],
         default="v0.3",
         help="Saved development version (default: v0.3 for compatibility)",
     )
     args = parser.parse_args()
-    suffix = args.version.replace(".", "")
+    suffix = args.version.replace(".", "").replace("-", "_")
     args.answers = args.answers or default_dir / f"agent_{suffix}_dev_raw.json"
     args.assessments = args.assessments or default_dir / f"answer_assessment_overrides_{suffix}_dev.jsonl"
     report = recompute_saved_run(args.questions, args.answers, args.assessments)

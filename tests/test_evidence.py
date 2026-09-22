@@ -63,7 +63,8 @@ def test_explicit_cohort_counts_survive_an_omitted_model_population_field():
     result = bind_components([{
         "requirement": "Diagnostic comparison", "status": "supported", "evidence_ids": ["E2"],
     }], [], [source])
-    assert result[0]["required_details"] == ["We enrolled 31 patients and 29 controls."]
+    assert "We enrolled 31 patients and 29 controls." in result[0]["required_details"]
+    assert "Sensitivity was 92% versus 84%." in result[0]["required_details"]
     repaired = restore_numeric_quotes(result, [{
         "component_id": "C1", "text": "Sensitivity was 92% versus 84%", "cite": ["PMID:1"],
     }])
@@ -172,17 +173,17 @@ def test_adjacent_source_cannot_fill_a_component_or_hide_missing_comparator():
 def test_missing_clinical_outcome_is_preserved_alongside_supported_diagnostics():
     status, gap = outline_status(outline())
     assert status == "partial"
-    assert "prospective patient benefit" in gap
+    assert "prospective patient benefit" in gap.casefold()
 
 
-def test_targeted_gap_can_be_clarified_without_changing_supported_results():
+def test_gap_rewrite_cannot_replace_the_requested_outcome():
     before = outline()
     result = repair_gaps(before, [
         {"component_id": "C1", "gap": "Wrongly overwrite the supported result"},
         {"component_id": "C2", "gap": "The study does not establish fewer hospital admissions."},
     ], ["C2"])
     assert result[0] == before[0]
-    assert result[1]["gap"] == "The study does not establish fewer hospital admissions."
+    assert result[1]["gap"] == before[1]["gap"]
     assert result[1]["status"] == "missing"
 
 
@@ -223,3 +224,116 @@ def test_targeted_repair_retains_the_other_component():
     assert preserved in result["answer_claims"]
     assert "92% vs. 84%" in result["answer"]
     assert "30 participants" in result["answer"]
+
+
+def test_development_count_cannot_be_used_as_validation_denominator():
+    source = chunk(text="We developed the model using 820 images from 71 patients. Validation AUC was 0.87.")
+    components = bind_components([{
+        "requirement": "Model development and performance", "status": "supported",
+        "evidence_ids": ["E1", "E2"], "required_details": ["Validation AUC was 0.87."],
+    }], [], [source])
+    wrong, issues = bind_claims([{"component_id": "C1", "text": "Validation on 820 images from 71 patients yielded AUC 0.87.", "cite": ["PMID:1"]}], components)
+    assert not wrong and issues
+    repaired = restore_numeric_quotes(components, wrong)
+    assert any("developed the model using 820 images" in c["text"] for c in repaired)
+    assert any("Validation AUC was 0.87" in c["text"] for c in repaired)
+    correct, issues = bind_claims(repaired, components)
+    assert correct and not issues
+
+
+def test_null_comparison_and_nonnumeric_method_are_restored():
+    source = chunk(text="Pressure correlated with mass (P = 0.02), whereas exposure duration did not (P = 0.7). The method combined rotated sampling with Hadamard encoding.")
+    components = bind_components([{
+        "requirement": "Methods and associations", "status": "supported", "evidence_ids": ["E1", "E2"],
+        "required_details": ["Pressure correlated with mass (P = 0.02)"],
+    }], [], [source])
+    claims = [{"component_id": "C1", "text": "Pressure correlated with mass (P = 0.02). The method used sampling.", "cite": ["PMID:1"]}]
+    repaired = restore_numeric_quotes(components, claims)
+    assert any("duration did not (P = 0.7)" in c["text"] for c in repaired)
+    assert any("Hadamard encoding" in c["text"] for c in repaired)
+
+
+def test_missing_outcome_does_not_invent_absent_patient_data():
+    source = chunk(text="A simulated workflow used archived examinations with histopathology as the reference.")
+    components = bind_components([{
+        "requirement": "Reduced invasive procedures versus usual care", "status": "missing",
+        "evidence_ids": ["E1"], "gap": "There were no real patients or biopsies.",
+    }], [], [source])
+    assert "no real" not in components[0]["gap"]
+    assert "Reduced invasive procedures versus usual care" in components[0]["gap"]
+    assert repair_gaps(components, [{"component_id": "C1", "gap": "The study does not establish benefit because no patients existed."}], ["C1"]) == components
+
+
+def test_method_purpose_alone_recovers_same_source_steps_not_neighboring_study():
+    source = chunk(text="The method addresses slow acquisition. The technique combined rotated sampling and Hadamard encoding.")
+    neighbor = chunk("2", "The technique used a different filter.")
+    components = bind_components([{"requirement": "Problem addressed by the reconstruction method", "status": "supported", "evidence_ids": ["E1"]}], [], [source, neighbor])
+    quotes = [s["quote"] for s in components[0]["evidence"]]
+    assert "The technique combined rotated sampling and Hadamard encoding." in quotes
+    assert neighbor.text not in quotes
+
+
+def test_boundary_distinguishes_measured_outcome_from_requested_comparison():
+    from medrag.agent.nodes import grade_relevance
+    for comparison_supported in (False, True):
+        source = chunk(text=("Mortality was 5% with treatment versus 10% with control among 80 randomized participants."
+                             if comparison_supported else "Mortality was 5% among 80 participants in one treatment cohort."))
+        llm = MagicMock()
+        llm.invoke.return_value = MagicMock(content=json.dumps({"assessments": [{
+            "id": "C1", "outcome_measured": True, "requested_comparison_supported": comparison_supported,
+            "outcome_evidence_ids": ["E1"], "comparison_evidence_ids": ["E1"] if comparison_supported else [],
+            "design_evidence_ids": [],
+        }]}))
+        with patch("medrag.agent.nodes.make_llm_think", return_value=llm):
+            result = grade_relevance({"query": "Does the study establish comparative mortality benefit?",
+                                     "source_scope": "single_study", "selected_sources": ["PMID:1"],
+                                     "answer_mode": "evidence_boundary", "answer_requirements": ["Comparative mortality benefit"],
+                                     "retrieved_chunks": [source]})
+        assert result["relevant"] is True  # A valid missing comparator needs no new study.
+        assert result["answer_components"][0]["requirement"] == "Comparative mortality benefit"
+        assert result["answer_components"][0]["status"] == ("supported" if comparison_supported else "missing")
+
+
+def test_complete_digits_do_not_erase_who_was_assisted():
+    from medrag.agent.evidence import preserve_result_context
+    source = chunk(text="With model assistance, readers increased sensitivity from 80% to 92%.")
+    components = bind_components([{"requirement": "Diagnostic result", "status": "supported",
+                                  "evidence_ids": ["E1"], "required_details": ["80% to 92%"]}], [], [source])
+    claims = [{"component_id": "C1", "text": "The model increased sensitivity from 80% to 92%.", "cite": ["PMID:1"]}]
+    result = preserve_result_context(components, claims)
+    assert len(result) == 1
+    assert 'With model assistance, readers' in result[0]["text"]
+    assert "The model increased" not in result[0]["text"]
+
+
+def test_separate_study_plans_keep_global_evidence_ids():
+    from medrag.agent.nodes import grade_relevance
+    first = chunk(text="Method A reduced scan time.")
+    second = chunk("2", "Method B reduced noise.")
+    llm = MagicMock()
+    llm.invoke.side_effect = [MagicMock(content=json.dumps({"relevant": True, "score": .9,
+        "components": [{"requirement": requirement, "status": "supported", "evidence_ids": [evidence]}]}))
+        for requirement, evidence in [("Method A result", "E1"), ("Method B result", "E2")]]
+    with patch("medrag.agent.nodes.make_llm_think", return_value=llm):
+        result = grade_relevance({"query": "Compare method A and method B", "source_scope": "multi_source",
+                                 "selected_sources": ["PMID:1", "PMID:2"], "retrieved_chunks": [first, second],
+                                 "source_queries": {"PMID:1": ["Method A result"], "PMID:2": ["Method B result"]}})
+    assert [c["evidence"][0]["citation"] for c in result["answer_components"]] == ["PMID:1", "PMID:2"]
+    assert "Method B reduced noise" not in llm.invoke.call_args_list[0].args[0][1].content
+    assert "Query: Method A result" in llm.invoke.call_args_list[0].args[0][1].content
+    assert "[E2]" in llm.invoke.call_args_list[1].args[0][1].content
+
+
+def test_check_schema_requires_each_gap_decision():
+    from medrag.agent.nodes import _check_schema
+    schema = _check_schema([{"id": "C1"}, {"id": "C2"}])
+    assert schema["properties"]["component_checks"]["required"] == ["C1", "C2"]
+
+
+def test_design_quote_does_not_replace_causal_explanation():
+    from medrag.agent.evidence import preserve_result_context
+    source = chunk(text="The 2020 study was cross-sectional and used a surrogate marker.")
+    components = bind_components([{"requirement": "Why causality cannot be established", "status": "supported",
+                                  "evidence_ids": ["E1"], "required_details": [source.text]}], [], [source])
+    claims = [{"component_id": "C1", "text": "The cross-sectional design cannot establish a causal treatment benefit.", "cite": ["PMID:1"]}]
+    assert preserve_result_context(components, claims) == claims

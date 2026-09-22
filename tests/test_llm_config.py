@@ -50,3 +50,11 @@ def test_cloud_request_is_bounded(monkeypatch):
     model = llms.make_llm_fast()
     assert model.request_timeout == 60.0
     assert model.max_retries == 1
+
+
+def test_structured_review_requests_json_without_consuming_reasoning_budget(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "ollama")
+    model = llms.make_llm_think(structured=True)
+    assert model.format == "json"
+    assert model.reasoning is False
+    assert llms.make_llm_fast().format is None

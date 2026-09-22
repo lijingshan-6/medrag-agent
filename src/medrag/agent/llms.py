@@ -8,7 +8,7 @@ Backend selection via environment variable LLM_BACKEND (default: mimo):
 Two tiers per backend:
   make_llm_fast()   → route, source identity selection, generate, summarize (direct output)
   make_llm_think()  → grade, rewrite, check (review tier; direct output by default)
-  make_llm_think(reasoning=True) → evidence-boundary outline (Ollama reasoning)
+  make_llm_think(reasoning=True) → optional Ollama reasoning, not used by default
 
 Note: MiMo's internal reasoning is disabled on both tiers via extra_body.
 The "think" tier still uses the heavier Pro model for better accuracy.
@@ -67,7 +67,7 @@ def _mimo_api_key() -> str:
 
 # ── Internal factory ───────────────────────────────────────────────────────────
 
-def _make_llm(thinking: bool, *, reasoning: bool = False):
+def _make_llm(thinking: bool, *, reasoning: bool = False, structured: bool | dict = False):
     """Shared factory — `thinking` selects tier (fast=OFF / think=ON/Pro)."""
     temp = 0.6 if thinking else 0.2
     model = _MIMO_THINK if thinking else _MIMO_FAST
@@ -78,9 +78,8 @@ def _make_llm(thinking: bool, *, reasoning: bool = False):
         raise ValueError("LLM_BACKEND must be mimo or ollama")
     if backend == "ollama":
         from langchain_ollama import ChatOllama
-        # Source/outcome matching needs deliberation: direct-output mode can
-        # mistake diagnostic surrogates for demonstrated clinical outcomes.
-        # Keep generation direct and bound review output, including reasoning.
+        # Keep structured review direct: a reasoning-only response can consume
+        # the output budget without returning a usable decision.
         logger.debug("[llm] %s → Ollama %s (reasoning=%s)",
                      "think" if thinking else "fast", _OLLAMA_MODEL, reasoning)
         return ChatOllama(
@@ -88,6 +87,7 @@ def _make_llm(thinking: bool, *, reasoning: bool = False):
             base_url=ollama_base_url(),
             client_kwargs={"timeout": timeout},
             reasoning=reasoning,
+            format=structured if isinstance(structured, dict) else ("json" if structured else None),
             # Qwen's general thinking profile uses sampling. Greedy reasoning
             # exhausted the output budget without a final answer in development.
             temperature=1.0 if reasoning else (0.0 if thinking else 0.2),
@@ -122,14 +122,14 @@ def _make_llm(thinking: bool, *, reasoning: bool = False):
 
 # ── Public factories ───────────────────────────────────────────────────────────
 
-def make_llm_fast():
+def make_llm_fast(*, structured: bool | dict = False):
     """Low-latency LLM — thinking OFF. Used by: route_query, generate_answer_node, summarize_history."""
-    return _make_llm(False)
+    return _make_llm(False, structured=structured)
 
 
-def make_llm_think(*, reasoning: bool = False):
+def make_llm_think(*, reasoning: bool = False, structured: bool | dict = False):
     """Pro-tier LLM (mimo-v2.5-pro, thinking disabled). Used by: grade_relevance, rewrite_query, check_faithfulness."""
-    return _make_llm(True, reasoning=reasoning)
+    return _make_llm(True, reasoning=reasoning, structured=structured)
 
 
 __all__ = ["make_llm_fast", "make_llm_think"]

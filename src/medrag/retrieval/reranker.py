@@ -114,6 +114,12 @@ class BGEReranker:
         top_k: int = 5,
     ) -> list[RetrievedChunk]:
         """Rerank per component query in one batch and retain query coverage."""
+        return _select_coverage_chunks(self.rank_groups(groups), top_k=top_k)
+
+    def rank_groups(
+        self, groups: list[tuple[str, list[RetrievedChunk]]],
+    ) -> list[list[RetrievedChunk]]:
+        """Keep each complete ranking available before study identity selection."""
 
         pairs: list[list[str]] = []
         refs: list[tuple[int, RetrievedChunk]] = []
@@ -141,7 +147,7 @@ class BGEReranker:
             )
         for group in ranked_groups:
             group.sort(key=lambda chunk: -chunk.score)
-        return _select_coverage_chunks(ranked_groups, top_k=top_k)
+        return ranked_groups
 
 
 __all__ = ["BGEReranker", "_select_coverage_chunks"]
