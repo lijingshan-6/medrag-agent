@@ -113,6 +113,43 @@ function ToolbarButton({ children, label, onClick }: { children: React.ReactNode
   )
 }
 
+// Evidence coverage describes the retrieved material, not clinical certainty.
+function EvidenceCoverage({ result, onCiteClick }: { result: AnswerOut; onCiteClick: (c: string) => void }) {
+  const setSelectedChunkId = useStore((state) => state.setSelectedChunkId)
+  if (!result.evidence_status) return null
+  const labels = { complete: 'Evidence covers the question', partial: 'Partially covered', insufficient: 'Insufficient evidence' }
+  const componentLabels = { supported: 'Source identified', partial: 'Partial support', missing: 'Evidence gap' }
+  return (
+    <section aria-label="Evidence coverage" style={{ margin: '0 0 26px', padding: '16px 18px', border: '1px solid var(--rule)', borderRadius: 8, background: 'var(--panel-2)' }}>
+      <div className="vm-eyebrow" style={{ color: result.evidence_status === 'complete' ? 'var(--verified)' : 'var(--warn)' }}>
+        {isGuidedDemo ? 'Illustrative coverage · ' : ''}{labels[result.evidence_status]}
+      </div>
+      <p style={{ margin: '8px 0', fontSize: 12, lineHeight: 1.6, color: 'var(--muted)' }}>
+        Coverage reflects the retrieved passages and model assessment; it is not a correctness score.
+      </p>
+      {result.evidence_gap && <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--ink-soft)' }}>{result.evidence_gap}</p>}
+      {result.answer_components?.map((component) => (
+        <details key={component.id} style={{ borderTop: '1px solid var(--rule)', padding: '10px 0 4px' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 13, lineHeight: 1.6, color: 'var(--ink-soft)' }}>
+            {component.requirement}
+            <span style={{ display: 'block', fontSize: 10, marginLeft: 16, color: 'var(--muted)' }}>{componentLabels[component.status]}</span>
+          </summary>
+          {component.gap && <p style={{ fontSize: 12, lineHeight: 1.6 }}>{component.gap}</p>}
+          {component.evidence.map((span, i) => (
+            <blockquote key={`${span.chunk_id}-${i}`} style={{ margin: '12px 0 8px', paddingLeft: 12, borderLeft: '2px solid var(--accent)', fontSize: 12, lineHeight: 1.65, color: 'var(--ink-soft)' }}>
+              {span.quote}
+              <button onClick={() => { onCiteClick(span.citation); setSelectedChunkId(span.chunk_id) }}
+                style={{ display: 'block', padding: '8px 0', background: 'transparent', color: 'var(--accent)', fontSize: 11 }}>
+                View source · {span.citation}
+              </button>
+            </blockquote>
+          ))}
+        </details>
+      ))}
+    </section>
+  )
+}
+
 // ── Verification mark ──────────────────────────────────────────────────────
 function VerificationMark({ result }: { result: AnswerOut }) {
   const ok = result.faithful
@@ -151,7 +188,6 @@ function VerificationMark({ result }: { result: AnswerOut }) {
         )}
 
         <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: '4px 22px', fontSize: 11, color: 'var(--muted)' }}>
-          <Metric label="model confidence"    value={isGuidedDemo ? "not measured" : `${Math.round(result.confidence * 100)}%`} />
           <Metric label="rewrites"      value={String(result.iterations)} />
           <Metric label="regenerations" value={String(result.regen_count)} />
           <Metric label="elapsed"       value={isGuidedDemo ? "illustrative" : `${(result.latency_ms / 1000).toFixed(2)}s`} />
@@ -447,6 +483,8 @@ export function AnswerPanel({
             <StreamingCaret />
           </div>
         )}
+
+        {result && <EvidenceCoverage result={result} onCiteClick={onCiteClick} />}
 
         {/* Prose body */}
         <div className="vm-prose">

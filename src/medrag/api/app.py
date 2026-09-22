@@ -21,6 +21,7 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent.parent / ".env")
 # qdrant_client first initialises grpcio's native C++ runtime which conflicts
 # with PyTorch's internal threads and causes a segfault on Windows.
 # The route modules pull in qdrant_client at import time, so we pre-empt here.
+import pyarrow  # noqa: F401 -- Arrow must precede the ML/native runtime on Windows
 import sentence_transformers  # noqa: F401
 
 from fastapi import FastAPI
@@ -31,7 +32,7 @@ from medrag.api.routes import ask, chunk, corpus, document, history, search
 app = FastAPI(
     title="VeritasMed API",
     description="Self-verifying medical literature QA backend",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────

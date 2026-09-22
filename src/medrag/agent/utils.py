@@ -1,6 +1,7 @@
 """Shared agent utilities."""
 from __future__ import annotations
 
+import html
 import logging
 import re
 
@@ -108,10 +109,12 @@ def build_answer_from_claims(claims: list[dict]) -> tuple[str, list[str]]:
             continue
         if not isinstance(cite_keys, list) or not cite_keys or any(not isinstance(c, str) for c in cite_keys):
             continue
-        text = claim_text.rstrip(" .")
+        text = html.unescape(re.sub(r"</?[A-Za-z][^>]*>", "", claim_text)).rstrip(" .")
         cites: list[str] = list(dict.fromkeys(cite_keys))
         inline = " ".join(f"[{c}]" for c in cites)
-        parts.append(f"{text} {inline}.")
+        rendered = f"{text} {inline}."
+        if rendered not in parts:
+            parts.append(rendered)
         for c in cites:
             if c not in seen_cites:
                 all_cites.append(c)

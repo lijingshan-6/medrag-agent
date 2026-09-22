@@ -29,6 +29,9 @@ class AgentState(TypedDict):
     source_scope: str
     """Whether evidence must stay within one study, combine sources, or is general."""
 
+    selected_sources: list[str]
+    """Studies matched to the original question before constructing the outline."""
+
     answer_mode: str
     """Direct answer, cross-source comparison, or evidence-boundary decision."""
 
@@ -37,6 +40,16 @@ class AgentState(TypedDict):
 
     answer_requirements: list[str]
     """Explicit components that a complete answer must cover."""
+
+    answer_components: list[dict]
+    """Question components bound to exact retrieved spans, qualifiers and gaps."""
+
+    answer_claims: list[dict]
+    """Generated claims with component IDs, retained for targeted repair."""
+
+    binding_issues: list[str]
+    repair_component_ids: list[str]
+    repair_history: Annotated[list[dict], add]
 
     rewritten_queries: Annotated[list[str], add]
     """Accumulates each query rewrite for audit / tracing."""

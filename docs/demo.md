@@ -12,13 +12,22 @@ Do not present guided screenshots as live inference. The three fixed answers are
 ## A short portfolio walkthrough
 
 1. Open the guided page and point out its fixed-example banner.
-2. Select **What kinds of data does the fastMRI knee dataset provide?** Show the answer's source marker and its passage in the right column.
-3. Select **How does fastMRI+ extend fastMRI for imaging research?** Show two source IDs, the six illustrative workflow stages, and **View context**. Two passages from the same document share a citation number.
-4. Select **Does this evidence establish which treatment is best for an individual patient?** The example explains the lack of supporting treatment evidence.
+2. Select **What kinds of data does the fastMRI knee dataset provide?** Show **Evidence covers the question**, expand its evidence component, and show the answer's source marker and its passage in the right column.
+3. Select **How does fastMRI+ extend fastMRI, and does this evidence establish diagnostic accuracy?** Show the **Partially covered** state and its explicit diagnostic-accuracy gap. Expand **Additional pathology annotations**, read the source quotation, and click **View source**. Two passages from one document share a citation number.
+4. Select **Does this evidence establish which treatment is best for an individual patient?** Show **Insufficient evidence**. A properly bounded refusal can pass the model check while the requested evidence is still insufficient.
 5. Use **Explore**, search `fastMRI`, open a document and inspect its authored-summary label and original-paper link.
 6. Open the [v0.3 evaluation report](agent-v0.3-report.md) and show an actual saved Agent answer next to its required evidence. Guided response time and confidence are not measurements.
 
 Copy and Download export the current answer; downloaded Markdown carries the guided-mode disclosure. Re-run repeats the selected example. Other questions in Guided mode show a clear instruction to use Live mode.
+
+Actual Guided screenshots: [complete coverage](assets/v04-complete.png),
+[partial coverage with an explicit gap](assets/v04-evidence-coverage.png), and
+[insufficient evidence](assets/v04-insufficient.png). These show authored examples, not model runs.
+
+A [real Live screenshot](assets/v04-live-partial.png) records the second question answered by
+`qwen3.5:9b` after installation in a fresh Windows directory: 57.48 seconds, no query rewrites
+or regenerations, with the annotation result and diagnostic-accuracy gap. Retrieval and generation
+were live; the underlying three demo passages are still authored summaries, not benchmark papers.
 
 ## Live demo configuration
 
@@ -34,6 +43,11 @@ LLM_TIMEOUT_SECONDS=240
 ```
 
 Download the chosen model with `ollama pull qwen3.5:9b` first. This model was exercised through the production Agent graph for the v1.1 baseline and v0.3 development comparison. The timeout above applies to each model call; the browser has a 300-second overall response deadline. With the default MiMo backend, questions and retrieved passages leave the machine for the configured cloud service.
+
+If Ollama was configured globally with a listening address such as `OLLAMA_HOST=0.0.0.0:11434`,
+the application connects through `http://127.0.0.1:11434`. It also accepts scheme-free host:port
+values and preserves explicitly configured remote or container hosts. There is no need to change
+the service's listening address.
 
 ## Inspect a measured answer without running models
 

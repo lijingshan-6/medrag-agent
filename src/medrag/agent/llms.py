@@ -6,8 +6,9 @@ Backend selection via environment variable LLM_BACKEND (default: mimo):
   LLM_BACKEND=ollama  → ChatOllama pointing at the configured local model
 
 Two tiers per backend:
-  make_llm_fast()   → route, generate, summarize nodes (thinking disabled)
-  make_llm_think()  → grade, rewrite, check nodes (thinking disabled; larger context)
+  make_llm_fast()   → route, source identity selection, generate, summarize (direct output)
+  make_llm_think()  → grade, rewrite, check (review tier; direct output by default)
+  make_llm_think(reasoning=True) → evidence-boundary outline (Ollama reasoning)
 
 Note: MiMo's internal reasoning is disabled on both tiers via extra_body.
 The "think" tier still uses the heavier Pro model for better accuracy.
@@ -29,7 +30,7 @@ from __future__ import annotations
 import logging
 import os
 
-from medrag.config import DEFAULT_OLLAMA_MODEL
+from medrag.config import DEFAULT_OLLAMA_MODEL, ollama_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,9 @@ def _mimo_api_key() -> str:
 
 # ── Internal factory ───────────────────────────────────────────────────────────
 
-def _make_llm(thinking: bool):
+def _make_llm(thinking: bool, *, reasoning: bool = False):
     """Shared factory — `thinking` selects tier (fast=OFF / think=ON/Pro)."""
-    temp  = 0.6 if thinking else 0.2
+    temp = 0.6 if thinking else 0.2
     model = _MIMO_THINK if thinking else _MIMO_FAST
 
     backend = os.environ.get("LLM_BACKEND", "mimo").strip().lower()
@@ -77,18 +78,24 @@ def _make_llm(thinking: bool):
         raise ValueError("LLM_BACKEND must be mimo or ollama")
     if backend == "ollama":
         from langchain_ollama import ChatOllama
-        # Direct output is required for the graph's small JSON contracts.  Qwen
-        # 3.5's explicit reasoning mode can spend the entire request timeout in
-        # hidden reasoning and then return a truncated or empty JSON response.
-        logger.debug("[llm] %s → Ollama %s (reasoning disabled)",
-                     "think" if thinking else "fast", _OLLAMA_MODEL)
+        # Source/outcome matching needs deliberation: direct-output mode can
+        # mistake diagnostic surrogates for demonstrated clinical outcomes.
+        # Keep generation direct and bound review output, including reasoning.
+        logger.debug("[llm] %s → Ollama %s (reasoning=%s)",
+                     "think" if thinking else "fast", _OLLAMA_MODEL, reasoning)
         return ChatOllama(
             model=_OLLAMA_MODEL,
-            base_url=os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/"),
+            base_url=ollama_base_url(),
             client_kwargs={"timeout": timeout},
-            reasoning=False,
-            temperature=temp,
-            num_ctx=6144 if thinking else 4096,
+            reasoning=reasoning,
+            # Qwen's general thinking profile uses sampling. Greedy reasoning
+            # exhausted the output budget without a final answer in development.
+            temperature=1.0 if reasoning else (0.0 if thinking else 0.2),
+            top_p=0.95,
+            top_k=20,
+            repeat_penalty=1.0,
+            num_ctx=8192,
+            num_predict=4096,
         )
 
     # Default: mimo
@@ -120,9 +127,9 @@ def make_llm_fast():
     return _make_llm(False)
 
 
-def make_llm_think():
+def make_llm_think(*, reasoning: bool = False):
     """Pro-tier LLM (mimo-v2.5-pro, thinking disabled). Used by: grade_relevance, rewrite_query, check_faithfulness."""
-    return _make_llm(True)
+    return _make_llm(True, reasoning=reasoning)
 
 
 __all__ = ["make_llm_fast", "make_llm_think"]

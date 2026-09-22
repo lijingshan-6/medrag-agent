@@ -5,7 +5,21 @@
 import type { ChunkOut } from './index'
 
 /** Mirror of models.py AnswerOut — used only in DoneEvent (WebSocket, not REST). */
+export interface AnswerComponent {
+  id: string
+  requirement: string
+  source_hint: string
+  status: 'supported' | 'partial' | 'missing'
+  evidence: { chunk_id: string; citation: string; quote: string }[]
+  required_details: string[]
+  gap: string
+  answer: string
+}
+
 export interface AnswerOut {
+  evidence_status?: 'complete' | 'partial' | 'insufficient' | null
+  evidence_gap?: string
+  answer_components?: AnswerComponent[]
   answer: string
   citations: string[]
   confidence: number

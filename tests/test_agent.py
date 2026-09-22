@@ -397,7 +397,7 @@ class TestNodeTransformations:
             "component b",
         ]
 
-    def test_rerank_single_study_keeps_only_the_leading_source(self, sample_state):
+    def test_rerank_keeps_candidates_until_study_identity_is_assessed(self, sample_state):
         from medrag.agent.nodes import rerank_chunks
 
         target = RetrievedChunk(
@@ -421,7 +421,7 @@ class TestNodeTransformations:
         with patch("medrag.agent.nodes._get_reranker", return_value=reranker):
             result = rerank_chunks(state)
 
-        assert [chunk.chunk_id for chunk in result["retrieved_chunks"]] == ["pubmed:1:0"]
+        assert [chunk.chunk_id for chunk in result["retrieved_chunks"]] == ["pubmed:1:0", "pubmed:2:0"]
 
     def test_append_history_records_original_query_and_answer(self, sample_state):
         from medrag.agent.nodes import append_history
@@ -563,67 +563,16 @@ class TestNodeTransformations:
         # relevant=true should bump score to at least GRADE_THRESHOLD
         assert result["relevance_score"] >= 0.6
 
-    def test_grade_merges_question_requirements_with_exact_evidence_details(self, sample_state):
+    def test_grade_preserves_original_requirements_when_outline_is_missing(self, sample_state):
         from medrag.agent.nodes import grade_relevance
-
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(
-            content=(
-                '{"relevant":true,"score":0.95,"reason":"complete",'
-                '"rewrite_hint":"","required_details":['
-                '"Report the 0.37 mm2 increase with P=0.010",'
-                '"Report the 0.70 mm2 decrease with P<0.001"]}'
-            )
-        )
-        state = {
-            **sample_state,
-            "query": "What change and toxicity did the treatment study report?",
-            "answer_requirements": ["Report the treatment toxicity"],
-        }
-
+        mock_llm.invoke.return_value = MagicMock(content='{"relevant":true,"score":0.95}')
+        requirements = ["Report treatment time", "Report toxicity"]
         with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
-            result = grade_relevance(state)
-
-        assert result["answer_requirements"] == [
-            "Report the 0.37 mm2 increase with P=0.010",
-            "Report the 0.70 mm2 decrease with P<0.001",
-            "Report the treatment toxicity",
-            "Report toxicities, grade, events, and rates.",
-        ]
-
-    def test_grade_restores_explicit_toxicity_component_when_grader_omits_it(
-        self, sample_state
-    ):
-        from medrag.agent.nodes import grade_relevance
-
-        chunk = RetrievedChunk(
-            "pubmed:1:0",
-            (
-                "Median total treatment time was 28 min. "
-                "No grade 3 or higher toxicities occurred; grade 2 events occurred in 10.3%."
-            ),
-            0.9,
-            {"source": "pubmed", "doc_id": "1"},
-        )
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(
-            content=(
-                '{"relevant":true,"score":0.95,"reason":"complete",'
-                '"rewrite_hint":"","required_details":['
-                '"Median total treatment time was 28 min"]}'
-            )
-        )
-        state = {
-            **sample_state,
-            "query": "What treatment-time and toxicity results were reported?",
-            "retrieved_chunks": [chunk],
-            "answer_requirements": ["Report treatment time and toxicity results"],
-        }
-
-        with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
-            result = grade_relevance(state)
-
-        assert any("10.3%" in item for item in result["answer_requirements"])
+            result = grade_relevance({**sample_state, "answer_requirements": requirements})
+        assert result["answer_requirements"] == requirements
+        assert [c["requirement"] for c in result["answer_components"]] == requirements
+        assert all(c["status"] == "missing" for c in result["answer_components"])
 
     def test_requirement_filter_drops_details_unrelated_to_question(self):
         from medrag.agent.nodes import _filter_requirements_for_query

@@ -247,6 +247,10 @@ def _ask_agent_sync(
         "query": sanitised,
         "original_query": "",
         "query_type": "",
+        "answer_components": [],
+        "answer_claims": [],
+        "binding_issues": [],
+        "repair_component_ids": [],
         "rewritten_queries": [],
         "retrieved_chunks": [],
         "relevance_score": 0.0,
@@ -266,6 +270,9 @@ def _ask_agent_sync(
     result = app.invoke(initial_state, config=config)
     return {
         "answer": result.get("answer", ""),
+        "evidence_status": result.get("evidence_status", "insufficient"),
+        "evidence_gap": result.get("evidence_gap", ""),
+        "answer_components": result.get("answer_components", []),
         "citations": result.get("citations", []),
         "confidence": result.get("confidence", 0.0),
         "faithful": result.get("faithful", False),

@@ -1,81 +1,98 @@
-# Current Agent workflow (v0.3)
+# Current Agent workflow (v0.4 development)
 
 The production Ask graph answers one standalone question using retrieved literature.
-The same graph is called by the browser API and `scripts/benchmark/run_agent.py`.
-Guided mode uses authored browser fixtures and does not execute this graph.
+The browser API and `scripts/benchmark/run_agent.py` call the same graph.
+Guided mode uses labelled browser fixtures and does not execute this graph.
 
 ```mermaid
 flowchart LR
-  Q[Original question] --> P[Plan component searches and source scope]
-  P --> R[Hybrid retrieval per component]
-  R --> B[Batch reranking and source coverage]
-  B --> G[Grade evidence and retain exact details]
-  G -->|weak evidence, budget left| W[Rewrite retrieval query]
+  Q[Original question] --> P[Plan searches and study scope]
+  P --> R[Hybrid retrieval and grouped reranking]
+  R --> S[Match requested study identities]
+  S --> G[Bind question components to source sentences]
+  G -->|source not found, budget left| W[Rewrite query]
   W --> R
-  G --> A[Generate claims, citations and evidence gap]
-  A --> C[Check support, completeness and boundary]
-  C -->|failed, budget left| A
-  C --> F[Answer with final check status]
+  G --> A[Generate each supported component]
+  A --> C[Check support, details and evidence gaps]
+  C -->|specific repairs, budget left| A
+  C --> F[Answer, gaps and expandable quotations]
 ```
 
-## Question and source planning
+## Questions, sources and the answer outline
 
-The router supplies up to three component queries and a compact list of requested answer
-components. Retrieval combines these with the original question and latest rewrite, with
-at most four distinct queries and 12 candidates per query. Generation and checking always
-receive the original question, even after a retrieval rewrite.
+The router proposes up to three component searches and a study scope. Retrieval includes
+the original question and latest rewrite, with at most four distinct queries and 12 candidates
+per query. Grouped reranking retains the best evidence for each query, allowing two components
+to share the same study or passage. It retains up to five chunks.
 
-`source_scope` distinguishes a single study, multiple sources and a general question.
-Questions about one study's methods and outcomes remain single-study questions. Multi-source
-reranking reserves evidence per component before filling remaining positions by score;
-single-study context keeps only the leading source. At most five chunks reach the answerer.
-Selecting the wrong leading source is still a possible failure mode, and PMID and PMC keys
-are treated as separate sources; the system does not resolve two identifiers for one paper.
+Within the grade node, single-study and multi-study questions first select matching study
+identities from the retrieved candidates. Selection uses the original question, titles and
+passages; it does not simply adopt the first-ranked source. Subsequent generation and checking
+read only the selected studies. This selection is a model decision and can itself be wrong.
 
-## Answer construction
+The program assigns local IDs to source sentences. The model selects these IDs to build an
+outline covering the original question. The program resolves them to the exact source text,
+chunk ID and citation. Population details, comparison values and relevant uncertainty travel
+with the component they qualify. Model-supplied details must occur in their bound quotation.
+Unanswered outcomes remain explicit components with an evidence gap.
 
-The grader supplies exact details from the retrieved passages. These are combined with the
-question's components and expanded to source sentences to preserve numbers and uncertainty.
-Explicit toxicity and adverse-event requests receive their own checklist entries. Source
-text cleanup removes HTML tags while retaining mathematical inequalities.
+This prevents transcription errors and mechanical source mismatches; it does not prove that
+a quoted sentence semantically supports a conclusion. Neither the Agent nor its prompts read
+benchmark answers, question IDs or adjudications.
 
-The answer model returns cited claims, confidence, `evidence_status` and `evidence_gap`.
-Only citation keys present in the retrieved context survive validation. The evidence status
-is `complete`, `partial` or `insufficient`. An insufficient-evidence answer contains the
-declared missing comparison or outcome; for evidence-boundary questions, adjacent findings
-are discarded when the requested conclusion lacks support.
+## Generation and targeted repair
 
-The final checker evaluates support, completeness and the evidence boundary separately.
-It can request up to two regenerations. Retrieval allows up to two rewrites. A malformed JSON
-response receives one local retry before normal graph handling. Reaching the regeneration
-limit returns the final answer with `faithful=false` and its unresolved issues; termination
-does not imply that the answer passed. The model's confidence and self-check are not external
-accuracy measurements.
+Every generated claim carries a component ID and references only citations bound to that
+component. A claim with an unknown component or wrong source is rejected. Supported results
+and gaps are assembled into the final answer. Boundary questions do not substitute adjacent
+diagnostic results for unsupported clinical conclusions.
 
-## Runtime and interface
+Evidence-boundary questions use a shorter, endpoint-focused outline prompt: it lists only the
+outcomes actually asked about. A question with one supported part and one missing part retains
+the supported part, instead of becoming a blanket refusal.
 
-The evaluated local configuration uses Ollama `qwen3.5:9b`, reasoning disabled, 4,096 tokens
-for routing/generation and 6,144 for grading/checking. The two model tiers use temperatures
-0.2 and 0.6. Repeated outputs can therefore differ. BGE-M3 embeddings run on CPU and the BGE
-reranker runs on CUDA on the evaluated host. The setup path in the README installs CPU
-PyTorch for portability; CUDA requires a compatible local PyTorch installation.
+The checker evaluates the original question, outline, answer and source text together. It can
+identify incomplete components and downgrade an outline component whose evidence does not
+actually establish its requested outcome. A separate numeric-presence check catches omissions
+from the outline's required numerical details; it does not assess units, causality or semantic
+equivalence. Those still require source review.
 
-Each browser Ask has an isolated checkpoint ID. UI session labels do not restore a conversation.
-The WebSocket has a 300-second response deadline. Cancellation stops future graph steps;
-an in-flight synchronous model call can finish in the background.
+Repairs replace only the identified components and preserve the others. There are at most two
+answer repairs and two retrieval rewrites. Invalid structured output receives one local retry.
+Omitted required numbers are restored by quoting their exact bound source sentence before the
+check, without an extra generation call. Explicit cohort-enrolment sentences are also retained
+when the model omits its population field. This is visibly attributed text, not an invented paraphrase. A source
+inference rejected by the last check is removed even when the repair budget is exhausted.
+The repair can also clarify a missing component's gap without changing its evidence status.
+If issues remain at the repair limit, the response retains its unresolved check status. A
+completed request is not necessarily a correct answer.
 
-The browser receives the answer, citations, retrieved passages, final `faithful` status,
-unresolved issues, rewrite count and regeneration count. Search plans and the three detailed
-check dimensions are currently available in saved benchmark traces, not as separate UI cards.
+## Interface and runtime
 
-## Reading the evidence
+The API adds optional `evidence_status`, `evidence_gap` and `answer_components` fields to the
+existing answer. The interface presents coverage as complete, partial or insufficient, with
+expandable quotations and links to their source passages. Coverage and the model's self-check
+describe the current evidence assessment; neither is a clinical correctness score. The model's
+self-reported confidence remains in the API for compatibility but is not shown as a percentage.
 
-- [v1.1 benchmark and original baseline](benchmark-v1.1-report.md)
-- [v0.3 development comparison](agent-v0.3-report.md)
+The current local model is Ollama `qwen3.5:9b`, with an 8,192-token context and a 4,096-token output
+limit for both tiers. Routing, source-identity selection and generation use direct output at
+temperature 0.2; ordinary grading and checking use direct output at temperature 0.0.
+Evidence-boundary questions enable reasoning for their outline at temperature 1.0, following the
+general thinking temperature in the [Qwen model card](https://huggingface.co/Qwen/Qwen3.5-9B#best-practices).
+The output limit includes reasoning tokens. These settings do not guarantee reproducibility. The local development runs use CPU
+BGE-M3 embeddings and CUDA BGE reranking; the README installation path uses CPU PyTorch.
+
+Each browser Ask has an isolated checkpoint. Session labels do not restore conversation memory.
+The browser API has a 300-second overall response deadline. Cancellation stops future graph
+steps; an already running synchronous model request may finish in the background.
+
+## Results and limitations
+
+The implementation is being evaluated; see the [v0.4 worklog](agent-v0.4-worklog.md).
+The [v0.3 report](agent-v0.3-report.md) remains the published baseline.
+The 35-question test split has not been used during v0.4 development.
+
+- [v0.4 implementation plan](superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md)
 - [Demonstration guide](demo.md)
-- Implementation: `src/medrag/agent/{graph,nodes,prompts,state}.py`,
-  `src/medrag/retrieval/reranker.py`, `src/medrag/api/routes/ask.py`
-
-The development comparison uses all 15 questions in one final run. It evaluates saved answers
-against frozen evidence; it is not clinician validation or evidence of performance on unseen
-questions. The 35-question test split has not been run for this milestone.
+- [Frozen benchmark](benchmark-v1.1-report.md)

@@ -6,11 +6,9 @@ import { QueryInput } from '../components/QueryInput'
 import { useAgentStream } from '../hooks/useAgentStream'
 import { useStore } from '../store'
 
-const SUGGESTED_QUERIES = [
-  'What kinds of data does the fastMRI knee dataset provide?',
-  'How does fastMRI+ extend fastMRI for imaging research?',
-  'Does this evidence establish which treatment is best for an individual patient?',
-]
+import { demoQuestions } from '../demo'
+
+const SUGGESTED_QUERIES = demoQuestions
 
 export function AnswerPage() {
   const { setQuery, setSelectedChunkId, activeQuery, result } = useStore()

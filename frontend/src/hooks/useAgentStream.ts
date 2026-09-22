@@ -10,7 +10,7 @@ const NODE_LABELS: Record<string, string> = {
   route:          'Route',
   retrieve:       'Retrieve',
   rerank:         'Rerank',
-  grade:          'Grade',
+  grade:          'Match evidence',
   rewrite:        'Rewrite',
   generate:       'Generate',
   check:          'Faithfulness Check',

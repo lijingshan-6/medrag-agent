@@ -1,6 +1,6 @@
 import fixtures from './examples.json'
 import type { ChunkOut } from '../types'
-import type { AgentEvent } from '../types/ws'
+import type { AgentEvent, AnswerOut } from '../types/ws'
 
 export const isGuidedDemo = new URLSearchParams(window.location.search).get('demo') === '1'
 export const demoSuffix = isGuidedDemo ? '?demo=1' : ''
@@ -26,7 +26,7 @@ export function playDemo(query: string, threadId: string, emit: (event: AgentEve
     } })
   }
   events.push({ event: 'done', node: null, data: {
-    ...example, confidence: 0, iterations: 0, regen_count: 0, rewritten_queries: [],
+    ...(example as unknown as AnswerOut), confidence: 0, iterations: 0, regen_count: 0, rewritten_queries: [],
     chunks: demoChunks, thread_id: threadId, latency_ms: 0,
   } })
   function next() {

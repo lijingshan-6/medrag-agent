@@ -139,7 +139,7 @@ def recompute_saved_run(
     }
 
 
-def render_cases(report: dict[str, Any], questions_path: Path) -> str:
+def render_cases(report: dict[str, Any], questions_path: Path, *, version: str = "v0.3") -> str:
     """Render the saved answers beside their frozen evidence and adjudications."""
 
     questions = {
@@ -149,14 +149,14 @@ def render_cases(report: dict[str, Any], questions_path: Path) -> str:
         for row in [json.loads(line)]
     }
     lines = [
-        "# v0.3 development answers and evidence",
+        f"# {version} {report['split']} answers and evidence",
         "",
-        "These are real production-Agent outputs, not guided-demo fixtures. All 15 answers",
-        f"come from one development run at `{report['code_commit'][:7]}` using `{report['answer_model']}`.",
+        f"These are real production-Agent outputs, not guided-demo fixtures. All {len(report['results'])} answers",
+        f"come from one {report['split']} run at `{report['code_commit'][:7]}` using `{report['answer_model']}`.",
         "The decisions below are Codex source-first adjudications, not independent clinician reviews.",
         "Recalculation checks the saved mappings and arithmetic; it does not independently verify their semantics.",
         "",
-        "[Results and limitations](agent-v0.3-report.md) · [Demo guide](demo.md)",
+        f"[Results and limitations](agent-{version}-report.md) · [Demo guide](demo.md)",
         "",
         "| Question | Strict pass | Agent self-check | Missing qualifiers | Unsupported claims |",
         "|---|---|---|---:|---:|",

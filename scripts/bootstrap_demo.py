@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import pyarrow  # noqa: F401 -- Arrow must precede the ML/native runtime on Windows
 import sentence_transformers  # noqa: F401 -- native runtime must load before Qdrant
 
 from medrag.config import get_qdrant_client

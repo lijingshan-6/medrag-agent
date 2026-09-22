@@ -33,6 +33,7 @@ def main() -> None:
         "QDRANT_COLLECTION": "medrag_demo",
         "MEDRAG_DATA_DIR": str(ROOT / ".demo-runtime"),
         "PYTHONIOENCODING": "utf-8",
+        "PYTHONNOUSERSITE": "1",
         # Same-origin Vite proxy; don't inherit another project's .env.local URL.
         "VITE_API_URL": "",
     })

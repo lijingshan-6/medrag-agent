@@ -44,6 +44,11 @@ def _build_initial_state(query: str) -> dict:
     return {
         "query": query,
         "original_query": "",
+        "answer_components": [],
+        "answer_claims": [],
+        "binding_issues": [],
+        "repair_component_ids": [],
+        "repair_history": [],
         "rewritten_queries": [],
         "retrieved_chunks": [],
         "relevance_score": 0.0,
@@ -279,6 +284,9 @@ async def ask_ws(websocket: WebSocket) -> None:
         final = snapshot.values if snapshot else {}
         latency = round((time.perf_counter() - t_start) * 1000, 1)
         answer_out = AnswerOut(
+            evidence_status=final.get("evidence_status"),
+            evidence_gap=final.get("evidence_gap", ""),
+            answer_components=final.get("answer_components", []),
             answer=final.get("answer", ""),
             citations=final.get("citations", []),
             confidence=final.get("confidence", 0.0),

@@ -12,6 +12,8 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, Field
 
+from medrag.agent.evidence import AnswerComponent
+
 
 # ── Shared ──────────────────────────────────────────────────────────────────
 
@@ -113,6 +115,9 @@ class AskRequest(BaseModel):
 # ── Full answer (inside "done" event data) ──────────────────────────────────
 
 class AnswerOut(BaseModel):
+    evidence_status: Literal["complete", "partial", "insufficient"] | None = None
+    evidence_gap: str = ""
+    answer_components: list[AnswerComponent] = Field(default_factory=list)
     answer: str
     citations: list[str]
     confidence: float

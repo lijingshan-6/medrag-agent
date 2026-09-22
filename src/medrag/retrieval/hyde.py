@@ -21,7 +21,7 @@ from langchain_ollama import ChatOllama
 from qdrant_client import QdrantClient
 
 from medrag.agent.utils import strip_thinking
-from medrag.config import DEFAULT_OLLAMA_MODEL
+from medrag.config import DEFAULT_OLLAMA_MODEL, ollama_base_url
 from medrag.index.embedder import BGEM3Embedder
 from medrag.retrieval.retriever import RetrievedChunk
 
@@ -54,7 +54,7 @@ class HyDERetriever:
         self.collection = collection
         self.llm = ChatOllama(
             model=llm_model,
-            base_url="http://127.0.0.1:11434",
+            base_url=ollama_base_url(),
             reasoning=False,
             temperature=temperature,
             num_ctx=1024,

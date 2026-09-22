@@ -13,7 +13,7 @@ def _chunk(chunk_id: str, doc_id: str, score: float) -> RetrievedChunk:
     )
 
 
-def test_select_coverage_chunks_reserves_one_source_per_component_query() -> None:
+def test_select_coverage_chunks_does_not_force_a_different_source_for_shared_evidence() -> None:
     prostate = [
         _chunk("pubmed:1:0", "1", 0.99),
         _chunk("pubmed:2:0", "2", 0.80),
@@ -26,8 +26,9 @@ def test_select_coverage_chunks_reserves_one_source_per_component_query() -> Non
     selected = _select_coverage_chunks([prostate, breast], top_k=3)
 
     assert selected[0].chunk_id == "pubmed:1:0"
-    assert selected[1].chunk_id == "pubmed:3:0"
-    assert {chunk.citation for chunk in selected[:2]} == {"PMID:1", "PMID:3"}
+    assert selected[1].chunk_id == "pubmed:2:0"
+    assert len(selected) == 3
+    assert len({chunk.chunk_id for chunk in selected}) == 3
 
 
 def test_select_coverage_chunks_fills_remaining_slots_by_score() -> None:

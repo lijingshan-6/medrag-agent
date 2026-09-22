@@ -11,7 +11,7 @@ import os
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from medrag.agent.utils import strip_thinking
-from medrag.config import DEFAULT_OLLAMA_MODEL
+from medrag.config import DEFAULT_OLLAMA_MODEL, ollama_base_url
 from medrag.retrieval.retriever import RetrievedChunk
 
 SYSTEM = (
@@ -55,7 +55,7 @@ def generate_answer(
         _model = model or os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
         llm = ChatOllama(
             model=_model,
-            base_url="http://127.0.0.1:11434",
+            base_url=ollama_base_url(),
             reasoning=False,
             temperature=temperature,
             num_ctx=4096,

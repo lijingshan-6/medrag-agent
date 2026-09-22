@@ -12,7 +12,7 @@ from fastapi import APIRouter
 
 from medrag.api._helpers import get_qdrant
 from medrag.api.models import CorpusStats, HealthResponse
-from medrag.config import COLLECTION_NAME
+from medrag.config import COLLECTION_NAME, ollama_base_url
 
 router = APIRouter()
 
@@ -74,7 +74,7 @@ async def health() -> HealthResponse:
     llm_status = "disconnected"
     backend = os.environ.get("LLM_BACKEND", "mimo").strip().lower()
     if backend == "ollama":
-        base_url = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+        base_url = ollama_base_url()
         endpoint = "/api/tags"
         headers = {}
     elif backend == "mimo":

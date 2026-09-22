@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--assessments", type=Path, default=default_dir / "answer_assessment_overrides_v03_dev.jsonl")
     parser.add_argument("--output", type=Path, help="Optional JSON report path; otherwise print metrics only")
     parser.add_argument("--cases", type=Path, help="Optional Markdown file with every answer and gold evidence")
+    parser.add_argument("--version", default="v0.3", help="Version label for the optional cases page")
     args = parser.parse_args()
     report = recompute_saved_run(args.questions, args.answers, args.assessments)
     if args.output:
@@ -28,7 +29,7 @@ def main() -> None:
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     if args.cases:
         args.cases.parent.mkdir(parents=True, exist_ok=True)
-        args.cases.write_text(render_cases(report, args.questions), encoding="utf-8", newline="\n")
+        args.cases.write_text(render_cases(report, args.questions, version=args.version), encoding="utf-8", newline="\n")
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
 
 

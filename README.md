@@ -4,9 +4,12 @@
 
 VeritasMed connects a React interface to a LangGraph agent: retrieve literature passages, rerank them, assess the evidence, rewrite a weak query, generate a cited answer, and check it against the retrieved context. This repository is a **local research showcase**, not a clinically validated assistant.
 
-**[v0.3.0 research showcase](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0)** · Python 3.12 · Node.js 22.12+ · Apache-2.0
+**v0.4 development candidate** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
-![VeritasMed guided example: answer, workflow and cited evidence](docs/assets/guided-desktop.png)
+This candidate adds component-level evidence and explicit gaps. Its effect evaluation is in progress;
+the [published v0.3.0](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0) remains the measured baseline below.
+
+![VeritasMed guided example: partial evidence coverage and source-linked answer](docs/assets/v04-evidence-coverage.png)
 
 *Actual application screenshot in Guided demo mode. Answers and animated steps are authored fixtures; they are not a live model run or a benchmark.*
 
@@ -21,7 +24,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173/?demo=1**. Select one of the three example questions, inspect citations and passage context, or use Explore to browse the small fixture. Copy, download and rerun an example from the answer toolbar.
+Open **http://127.0.0.1:5173/?demo=1**. Try the three examples for complete coverage, partial coverage, and insufficient evidence. Expand an answer component to read its quotation and click **View source**. Explore browses the small fixture; the answer toolbar supports copy, download and rerun.
 
 Guided mode runs in the browser. It uses fixed authored answers and text matching over three fixture passages; it makes no backend or model calls. Its disclosure banner stays visible. Arbitrary questions require Live mode.
 
@@ -72,9 +75,9 @@ The demo stores vectors and checkpoints under `.demo-runtime/`, uses collection 
 ## What the project demonstrates
 
 - **Retrieval:** BGE-M3 dense and sparse embeddings, Qdrant hybrid retrieval and a BGE cross-encoder reranker. Explore exposes P2 hybrid and P3 reranked search.
-- **Agent control flow:** component search planning, coverage across sources, single-study source constraints, evidence grading and bounded answer repair. Ask always uses the full [agent workflow](docs/agent-workflow.md).
-- **Inspectable answers:** source-linked citations, passage context and streamed node activity. A model evidence check is a self-assessment, not a guarantee of factual or clinical correctness.
-- **Failure handling:** bounded LLM calls, response deadlines, one terminal stream result, cancellation between nodes and isolation between individual requests.
+- **Source-bound answers:** each requested part has a matching study, exact source passage, required details and an explicit gap when evidence is missing. Ask uses the full [agent workflow](docs/agent-workflow.md).
+- **Targeted repair:** missing details or an imprecise gap can be repaired without replacing the other components. Omitted bound numbers can be restored as attributed source quotations.
+- **Inspectable answers:** complete, partial and insufficient coverage, expandable quotations, source-linked citations and streamed node activity. Coverage and self-check are not correctness scores.
 - **Reproducibility:** dependency lock, frozen corpus hashes, a claim-level 50-question benchmark, saved real answers and an offline command to recompute their metrics.
 
 ```mermaid
@@ -83,13 +86,13 @@ flowchart LR
   API --> Route[Route question]
   Route --> Retrieve[BGE-M3 + Qdrant]
   Retrieve --> Rerank[BGE reranker]
-  Rerank --> Grade[Grade evidence]
+  Rerank --> Grade[Match studies and bind answer outline]
   Grade -->|weak, within budget| Rewrite[Rewrite query]
   Rewrite --> Retrieve
   Grade --> Generate[Generate cited answer]
   Generate --> Check[Model evidence check]
   Check -->|revise, within budget| Generate
-  Check --> Answer[Answer + sources + trace]
+  Check --> Answer[Answer + evidence gaps + source passages]
 ```
 
 Each Ask is a standalone question. Session labels in the interface do **not** provide conversational memory or restore previous answers. Internal checkpoints are isolated per request to prevent cross-request result contamination.
@@ -204,4 +207,6 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 
 [Demo walkthrough / optional Docker](docs/demo.md) · [v0.3.0 release notes](docs/releases/v0.3.0.md) · [Changelog](CHANGELOG.md) · [Completed v0.3 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.3.md) · [Next: v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md)
 
-Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The [v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md) binds each requested component to its study, evidence span and missing qualifiers, exposes evidence gaps in the interface, and measures repeat-run behavior before using the untouched test split. This is planned work; the current implementation remains v0.3.0.
+Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). See the
+[v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md) and
+[implementation record](docs/agent-v0.4-worklog.md) for completed work and remaining effect evaluation.

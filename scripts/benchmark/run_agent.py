@@ -15,6 +15,7 @@ from typing import Any
 _RUNTIME_FILES = (
     "scripts/benchmark/run_agent.py",
     "src/medrag/agent/graph.py",
+    "src/medrag/agent/evidence.py",
     "src/medrag/agent/llms.py",
     "src/medrag/agent/nodes.py",
     "src/medrag/agent/prompts.py",
@@ -52,6 +53,7 @@ def _save(path: Path, payload: dict[str, Any]) -> None:
 def _summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "questions": len(rows),
+        "errors": sum(bool(row.get("error")) for row in rows),
         "mean_latency_seconds": fmean(row["latency_seconds"] for row in rows)
         if rows
         else 0.0,
@@ -123,6 +125,7 @@ def run(args: argparse.Namespace) -> None:
     # Load the PyTorch stack before Qdrant's native gRPC runtime on Windows.
     # The inverse order can terminate a CUDA process before Python can emit an
     # exception, which is why build_runtime_index applies the same guard.
+    import pyarrow  # noqa: F401 -- load Arrow before the ML/native runtime on Windows
     import sentence_transformers  # noqa: F401
 
     # Imports must follow the environment contract because the production graph
@@ -145,9 +148,19 @@ def run(args: argparse.Namespace) -> None:
         "embedder_device": args.embedder_device,
         "reranker": "BAAI/bge-reranker-v2-m3",
         "reranker_device": args.reranker_device,
-        "ollama_reasoning": False,
-        "fast_context_tokens": 4096,
-        "review_context_tokens": 6144,
+        "ollama_fast_reasoning": False,
+        "ollama_review_reasoning": "evidence-boundary outline only",
+        "fast_num_predict": 4096,
+        "review_num_predict": 4096,
+        "fast_context_tokens": 8192,
+        "review_context_tokens": 8192,
+        "fast_temperature": 0.2,
+        "review_temperature": 0.0,
+        "boundary_outline_temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "repeat_penalty": 1.0,
+        "model_default_presence_penalty": 1.5,
         "request_timeout_seconds": args.timeout,
     }
 
@@ -156,6 +169,7 @@ def run(args: argparse.Namespace) -> None:
             results.append(existing[question.id])
             print(f"[resume] {offset}/{len(questions)} {question.id}", flush=True)
             continue
+        print(f"[agent] starting {offset}/{len(questions)} {question.id}", flush=True)
         result = run_agent_question(
             agent_app,
             question_id=question.id,

@@ -19,32 +19,16 @@ def _select_coverage_chunks(
     ranked_groups: list[list[RetrievedChunk]],
     top_k: int,
 ) -> list[RetrievedChunk]:
-    """Reserve one distinct source per component query, then fill by score."""
+    """Reserve the best evidence per component query, then fill by score."""
 
     selected: list[RetrievedChunk] = []
     seen_chunks: set[str] = set()
-    seen_sources: set[str] = set()
-
     for group in ranked_groups:
         if len(selected) >= top_k:
             break
-        candidate = next(
-            (
-                chunk
-                for chunk in group
-                if chunk.chunk_id not in seen_chunks and chunk.citation not in seen_sources
-            ),
-            None,
-        )
-        if candidate is None:
-            candidate = next(
-                (chunk for chunk in group if chunk.chunk_id not in seen_chunks),
-                None,
-            )
-        if candidate is not None:
-            selected.append(candidate)
-            seen_chunks.add(candidate.chunk_id)
-            seen_sources.add(candidate.citation)
+        if group and group[0].chunk_id not in seen_chunks:
+            selected.append(group[0])
+            seen_chunks.add(group[0].chunk_id)
 
     remaining = sorted(
         (chunk for group in ranked_groups for chunk in group),
@@ -57,7 +41,6 @@ def _select_coverage_chunks(
             continue
         selected.append(chunk)
         seen_chunks.add(chunk.chunk_id)
-        seen_sources.add(chunk.citation)
     return selected
 
 

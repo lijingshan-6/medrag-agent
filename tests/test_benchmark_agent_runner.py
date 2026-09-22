@@ -45,3 +45,15 @@ def test_agent_runner_captures_real_graph_result_with_isolated_thread() -> None:
     assert result["retrieved_chunk_ids"] == ["pubmed:1:0"]
     assert result["faithful"] is True
     assert result["iterations"] == 1
+
+
+def test_failed_execution_is_retained_as_an_error_not_an_evidence_refusal():
+    class BrokenAgent:
+        def invoke(self, state, *, config):
+            raise RuntimeError("Invalid structured model output")
+
+    result = run_agent_question(BrokenAgent(), question_id="failed", query="What was found?")
+    assert result["error"]["type"] == "RuntimeError"
+    assert result["answer"] == ""
+    assert result["faithful"] is False
+    assert result["evidence_status"] == "error"
