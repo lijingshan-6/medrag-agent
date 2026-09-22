@@ -18,6 +18,7 @@ _RUNTIME_FILES = (
     "src/medrag/agent/llms.py",
     "src/medrag/agent/nodes.py",
     "src/medrag/agent/prompts.py",
+    "src/medrag/agent/state.py",
     "src/medrag/agent/utils.py",
     "src/medrag/benchmark/agent_runner.py",
     "src/medrag/config.py",

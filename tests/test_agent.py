@@ -16,6 +16,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from medrag.retrieval.retriever import RetrievedChunk
+
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -25,8 +27,14 @@ def sample_state():
     return {
         "query": "What is the mechanism of aspirin?",
         "original_query": "",
+        "query_type": "factual",
+        "source_scope": "general",
+        "answer_mode": "direct",
+        "search_queries": [],
+        "answer_requirements": [],
         "rewritten_queries": [],
         "retrieved_chunks": [],
+        "retrieval_groups": [],
         "relevance_score": 0.0,
         "relevant": False,
         "grade_reason": "No relevant context found.",
@@ -35,6 +43,8 @@ def sample_state():
         "answer": "",
         "citations": [],
         "confidence": 0.0,
+        "evidence_status": "complete",
+        "evidence_gap": "",
         "faithful": False,
         "faithfulness_issues": "",
         "regen_count": 0,
@@ -200,6 +210,163 @@ class TestNodeTransformations:
 
         assert result["original_query"] == sample_state["query"]
 
+    def test_route_query_extracts_search_plan_and_answer_requirements(self, sample_state):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"type":"synthesis","reason":"two studies",'
+                '"source_scope":"multi_source",'
+                '"answer_mode":"compare",'
+                '"search_queries":["prostate MRI AI triage performance",'
+                '"breast ultrasound SCAR-Net radiologist performance"],'
+                '"answer_requirements":["Report the prostate result with comparator",'
+                '"Report the breast result with all performance measures"]}'
+            )
+        )
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(sample_state)
+
+        assert result["search_queries"] == [
+            "prostate MRI AI triage performance",
+            "breast ultrasound SCAR-Net radiologist performance",
+        ]
+        assert result["answer_requirements"] == [
+            "Report the prostate result with comparator",
+            "Report the breast result with all performance measures",
+        ]
+        assert result["source_scope"] == "multi_source"
+        assert result["answer_mode"] == "compare"
+
+    def test_route_retries_invalid_json_once(self, sample_state):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.side_effect = [
+            MagicMock(content='{"type":"synthesis"'),
+            MagicMock(
+                content=(
+                    '{"type":"factual","reason":"one fact",'
+                    '"source_scope":"single_study","search_queries":["aspirin mechanism"],'
+                    '"answer_requirements":["Report the mechanism"]}'
+                )
+            ),
+        ]
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(sample_state)
+
+        assert mock_llm.invoke.call_count == 2
+        assert result["source_scope"] == "single_study"
+
+    def test_route_detects_evidence_boundary_question(self, sample_state):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"type":"factual","source_scope":"single_study","reason":"one study",'
+                '"search_queries":["AI triage biopsies outcomes"],'
+                '"answer_requirements":["Does the study reduce unnecessary biopsies?",'
+                '"Does the study improve patient outcomes?"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": "Does the supplied study establish fewer biopsies or better outcomes?",
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(state)
+
+        assert result["answer_mode"] == "evidence_boundary"
+
+    def test_route_does_not_accept_boundary_mode_for_what_question(self, sample_state):
+        from medrag.agent.nodes import route_query
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"type":"synthesis","source_scope":"single_study",'
+                '"answer_mode":"evidence_boundary","reason":"incorrect model label",'
+                '"search_queries":["DYNAMITE structural changes"],'
+                '"answer_requirements":["Report structural changes"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": "What structural changes did the DYNAMITE study report?",
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = route_query(state)
+
+        assert result["answer_mode"] == "direct"
+
+    def test_hybrid_retrieve_runs_each_planned_query_and_merges_chunks(self, sample_state):
+        from medrag.agent.nodes import hybrid_retrieve
+
+        chunks = {
+            "original": RetrievedChunk("pubmed:1:0", "one", 0.9, {"source": "pubmed", "doc_id": "1"}),
+            "component a": RetrievedChunk("pubmed:2:0", "two", 0.8, {"source": "pubmed", "doc_id": "2"}),
+            "component b": RetrievedChunk("pubmed:3:0", "three", 0.7, {"source": "pubmed", "doc_id": "3"}),
+        }
+        retriever = MagicMock()
+        retriever.retrieve.side_effect = lambda query, k: [chunks[query]]
+        state = {
+            **sample_state,
+            "query": "original",
+            "original_query": "original",
+            "search_queries": ["component a", "component b"],
+        }
+
+        with patch("medrag.agent.nodes._get_retriever", return_value=retriever):
+            result = hybrid_retrieve(state)
+
+        assert [call.args[0] for call in retriever.retrieve.call_args_list] == [
+            "original",
+            "component a",
+            "component b",
+        ]
+        assert [chunk.chunk_id for chunk in result["retrieved_chunks"]] == [
+            "pubmed:1:0",
+            "pubmed:2:0",
+            "pubmed:3:0",
+        ]
+        assert [group["query"] for group in result["retrieval_groups"]] == [
+            "original",
+            "component a",
+            "component b",
+        ]
+
+    def test_rerank_single_study_keeps_only_the_leading_source(self, sample_state):
+        from medrag.agent.nodes import rerank_chunks
+
+        target = RetrievedChunk(
+            "pubmed:1:0", "target", 0.9, {"source": "pubmed", "doc_id": "1"}
+        )
+        adjacent = RetrievedChunk(
+            "pubmed:2:0", "adjacent", 0.8, {"source": "pubmed", "doc_id": "2"}
+        )
+        reranker = MagicMock()
+        reranker.rerank_grouped.return_value = [target, adjacent]
+        state = {
+            **sample_state,
+            "original_query": "What did the supplied study establish?",
+            "source_scope": "single_study",
+            "retrieved_chunks": [target, adjacent],
+            "retrieval_groups": [
+                {"query": "target study", "chunks": [target, adjacent]},
+            ],
+        }
+
+        with patch("medrag.agent.nodes._get_reranker", return_value=reranker):
+            result = rerank_chunks(state)
+
+        assert [chunk.chunk_id for chunk in result["retrieved_chunks"]] == ["pubmed:1:0"]
+
     def test_append_history_records_original_query_and_answer(self, sample_state):
         from medrag.agent.nodes import append_history
 
@@ -236,6 +403,86 @@ class TestNodeTransformations:
         assert result["citations"] == []
         assert result["confidence"] == 0.0
 
+    def test_generate_answers_the_original_question_after_rewrite(self, sample_state):
+        from medrag.agent.nodes import generate_answer_node
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content='{"claims":[],"confidence":0,"evidence_status":"insufficient","evidence_gap":"The retrieved documents do not establish the requested comparison."}'
+        )
+        state = {
+            **sample_state,
+            "query": "narrow rewritten retrieval query",
+            "original_query": "full user question with both comparison arms",
+            "answer_requirements": ["Cover both comparison arms"],
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = generate_answer_node(state)
+
+        messages = mock_llm.invoke.call_args.args[0]
+        assert "full user question with both comparison arms" in messages[1].content
+        assert "Cover both comparison arms" in messages[1].content
+        assert result["evidence_status"] == "insufficient"
+        assert result["evidence_gap"] in result["answer"]
+
+    def test_evidence_boundary_mode_discards_adjacent_partial_claims(self, sample_state):
+        from medrag.agent.nodes import generate_answer_node
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            "The simulation improved specificity but did not measure patient outcomes.",
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+        gap = "The study does not establish fewer biopsies or improved patient outcomes."
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"claims":[{"text":"Specificity improved.","cite":["PMID:1"]}],'
+                '"confidence":0.7,"evidence_status":"partial",'
+                f'"evidence_gap":"{gap}"}}'
+            )
+        )
+        state = {
+            **sample_state,
+            "answer_mode": "evidence_boundary",
+            "retrieved_chunks": [chunk],
+        }
+
+        with patch("medrag.agent.nodes.make_llm_fast", return_value=mock_llm):
+            result = generate_answer_node(state)
+
+        assert result["evidence_status"] == "insufficient"
+        assert result["answer"] == gap
+        assert result["citations"] == []
+
+    def test_faithfulness_check_requires_complete_answer_and_correct_boundary(self, sample_state):
+        from medrag.agent.nodes import check_faithfulness
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"supported":true,"complete":false,"boundary_correct":true,'
+                '"issues":"The answer omits the comparator and confidence interval."}'
+            )
+        )
+        state = {
+            **sample_state,
+            "query": "rewritten query",
+            "original_query": "What were the effect, comparator, and confidence interval?",
+            "answer_requirements": ["Include effect, comparator, and confidence interval"],
+            "answer": "The treatment was associated with improvement [PMID:1].",
+        }
+
+        with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
+            result = check_faithfulness(state)
+
+        messages = mock_llm.invoke.call_args.args[0]
+        assert "What were the effect, comparator, and confidence interval?" in messages[1].content
+        assert result["faithful"] is False
+        assert "omits the comparator" in result["faithfulness_issues"]
+
     def test_regen_prompt_repeats_the_json_contract(self):
         from medrag.agent.prompts import REGEN_SYSTEM
 
@@ -259,6 +506,116 @@ class TestNodeTransformations:
 
         # relevant=true should bump score to at least GRADE_THRESHOLD
         assert result["relevance_score"] >= 0.6
+
+    def test_grade_replaces_router_requirements_with_exact_evidence_details(self, sample_state):
+        from medrag.agent.nodes import grade_relevance
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content=(
+                '{"relevant":true,"score":0.95,"reason":"complete",'
+                '"rewrite_hint":"","required_details":['
+                '"Report the 0.37 mm2 increase with P=0.010",'
+                '"Report the 0.70 mm2 decrease with P<0.001"]}'
+            )
+        )
+        state = {
+            **sample_state,
+            "answer_requirements": ["An invented router example"],
+        }
+
+        with patch("medrag.agent.nodes.make_llm_think", return_value=mock_llm):
+            result = grade_relevance(state)
+
+        assert result["answer_requirements"] == [
+            "Report the 0.37 mm2 increase with P=0.010",
+            "Report the 0.70 mm2 decrease with P<0.001",
+        ]
+
+    def test_requirement_filter_drops_details_unrelated_to_question(self):
+        from medrag.agent.nodes import _filter_requirements_for_query
+
+        result = _filter_requirements_for_query(
+            "How did AI change prostate MRI and breast ultrasound diagnostic performance?",
+            [
+                "Prostate MRI sensitivity and specificity changed with AI",
+                "Breast ultrasound AUC changed with AI",
+                "Generalizability limitations and evidence gaps",
+            ],
+        )
+
+        assert result == [
+            "Prostate MRI sensitivity and specificity changed with AI",
+            "Breast ultrasound AUC changed with AI",
+        ]
+
+    def test_requirement_expansion_restores_statistics_from_supporting_sentence(self):
+        from medrag.agent.nodes import _expand_requirements_from_context
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            (
+                "The primary endpoint was the difference in mean device area at 9 months. "
+                "At 9 months, mean device area increased to 8.53 mm2 "
+                "(absolute difference 0.37 mm2; p = 0.010). "
+                "Four patients had events by 24 months."
+            ),
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+
+        result = _expand_requirements_from_context(
+            ["Mean device area increased by 0.37 mm2 at 9 months"],
+            [chunk],
+        )
+
+        assert "p = 0.010" in result[0]
+
+    def test_how_requirement_expansion_includes_adjacent_method_sentence(self):
+        from medrag.agent.nodes import _expand_requirements_from_context
+
+        chunk = RetrievedChunk(
+            "pubmed:1:0",
+            (
+                "Through-plane and in-plane acceleration techniques are combined. "
+                "Multiple image-shift strategies and 2D Hadamard encoding reduce slice leakage. "
+                "Tests reduced scan time and increased SNR."
+            ),
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+
+        result = _expand_requirements_from_context(
+            ["Multiple image-shift strategies and 2D Hadamard encoding reduce slice leakage"],
+            [chunk],
+            query="How did the fMRI acceleration method work?",
+        )
+
+        assert "Through-plane and in-plane" in result[0]
+
+    def test_how_requirement_expansion_never_crosses_source_boundary(self):
+        from medrag.agent.nodes import _expand_requirements_from_context
+
+        other = RetrievedChunk(
+            "pubmed:2:0",
+            "A different method used an unrelated Bayesian framework.",
+            0.8,
+            {"source": "pubmed", "doc_id": "2"},
+        )
+        target = RetrievedChunk(
+            "pubmed:1:0",
+            "Multiple image-shift strategies and 2D Hadamard encoding reduce slice leakage.",
+            0.9,
+            {"source": "pubmed", "doc_id": "1"},
+        )
+
+        result = _expand_requirements_from_context(
+            ["Multiple image-shift strategies and 2D Hadamard encoding reduce slice leakage"],
+            [other, target],
+            query="How did the fMRI acceleration method work?",
+        )
+
+        assert "Bayesian framework" not in result[0]
 
 
 # ── Test 4: Memory helpers ────────────────────────────────────────────────────

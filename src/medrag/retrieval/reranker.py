@@ -15,6 +15,52 @@ from medrag.retrieval.retriever import RetrievedChunk
 logger = logging.getLogger(__name__)
 
 
+def _select_coverage_chunks(
+    ranked_groups: list[list[RetrievedChunk]],
+    top_k: int,
+) -> list[RetrievedChunk]:
+    """Reserve one distinct source per component query, then fill by score."""
+
+    selected: list[RetrievedChunk] = []
+    seen_chunks: set[str] = set()
+    seen_sources: set[str] = set()
+
+    for group in ranked_groups:
+        if len(selected) >= top_k:
+            break
+        candidate = next(
+            (
+                chunk
+                for chunk in group
+                if chunk.chunk_id not in seen_chunks and chunk.citation not in seen_sources
+            ),
+            None,
+        )
+        if candidate is None:
+            candidate = next(
+                (chunk for chunk in group if chunk.chunk_id not in seen_chunks),
+                None,
+            )
+        if candidate is not None:
+            selected.append(candidate)
+            seen_chunks.add(candidate.chunk_id)
+            seen_sources.add(candidate.citation)
+
+    remaining = sorted(
+        (chunk for group in ranked_groups for chunk in group),
+        key=lambda chunk: -chunk.score,
+    )
+    for chunk in remaining:
+        if len(selected) >= top_k:
+            break
+        if chunk.chunk_id in seen_chunks:
+            continue
+        selected.append(chunk)
+        seen_chunks.add(chunk.chunk_id)
+        seen_sources.add(chunk.citation)
+    return selected
+
+
 def _resolve_device() -> tuple[str, bool]:
     setting = os.environ.get("RERANKER_DEVICE", "auto").strip().lower()
     if setting == "auto":
@@ -79,5 +125,40 @@ class BGEReranker:
             for s, c in ranked[:top_k]
         ]
 
+    def rerank_grouped(
+        self,
+        groups: list[tuple[str, list[RetrievedChunk]]],
+        top_k: int = 5,
+    ) -> list[RetrievedChunk]:
+        """Rerank per component query in one batch and retain query coverage."""
 
-__all__ = ["BGEReranker"]
+        pairs: list[list[str]] = []
+        refs: list[tuple[int, RetrievedChunk]] = []
+        for group_index, (query, chunks) in enumerate(groups):
+            for chunk in chunks:
+                pairs.append([query, chunk.text])
+                refs.append((group_index, chunk))
+        if not pairs:
+            return []
+
+        scores = self._model.predict(
+            pairs,
+            batch_size=self.batch_size,
+            show_progress_bar=False,
+        )
+        ranked_groups: list[list[RetrievedChunk]] = [[] for _ in groups]
+        for score, (group_index, chunk) in zip(scores, refs, strict=True):
+            ranked_groups[group_index].append(
+                RetrievedChunk(
+                    chunk_id=chunk.chunk_id,
+                    text=chunk.text,
+                    score=float(score),
+                    payload=chunk.payload,
+                )
+            )
+        for group in ranked_groups:
+            group.sort(key=lambda chunk: -chunk.score)
+        return _select_coverage_chunks(ranked_groups, top_k=top_k)
+
+
+__all__ = ["BGEReranker", "_select_coverage_chunks"]

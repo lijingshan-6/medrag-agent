@@ -64,6 +64,7 @@ _GRADE_THRESHOLDS = {
 }
 HISTORY_SUMMARIZE_EVERY = 10  # L2 compression after this many turns
 CANDIDATE_K  = 20         # hybrid retrieval candidate pool
+PER_QUERY_K  = 12         # bound multi-part retrieval before grouped reranking
 TOP_K        = 5          # chunks passed to generator
 
 # ── Lazy resource factories ────────────────────────────────────────────────────
@@ -146,6 +147,36 @@ def _parse_json(text: str) -> dict[str, Any]:
     return {}
 
 
+def _invoke_json_with_retry(
+    llm: Any,
+    messages: list[Any],
+    *,
+    required_keys: tuple[str, ...],
+) -> tuple[str, dict[str, Any]]:
+    """Retry one malformed structured response before changing graph state."""
+
+    raw = ""
+    for attempt in range(2):
+        attempt_messages = messages
+        if attempt:
+            attempt_messages = [
+                *messages,
+                HumanMessage(
+                    content=(
+                        "Your previous response was invalid or incomplete JSON. Return only "
+                        "one compact JSON object under 800 characters with every required key."
+                    )
+                ),
+            ]
+        raw = _invoke_with_retry(llm, attempt_messages)
+        parsed = _parse_json(raw)
+        if parsed and all(key in parsed for key in required_keys):
+            return raw, parsed
+        if attempt == 0:
+            logger.warning("[llm] invalid structured output — retrying once in place")
+    return raw, {}
+
+
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     """Format retrieved chunks for the generate prompt.
 
@@ -159,6 +190,175 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(parts)
 
 
+def _unique_texts(values: Any, *, limit: int) -> list[str]:
+    """Return bounded, non-empty, case-insensitively unique strings."""
+
+    if not isinstance(values, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = " ".join(value.split()).strip()
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        result.append(normalized)
+        seen.add(key)
+        if len(result) >= limit:
+            break
+    return result
+
+
+_REQUIREMENT_STOPWORDS = {
+    "and",
+    "about",
+    "after",
+    "answer",
+    "between",
+    "does",
+    "evidence",
+    "from",
+    "for",
+    "general",
+    "include",
+    "including",
+    "question",
+    "report",
+    "reported",
+    "result",
+    "results",
+    "specific",
+    "study",
+    "supplied",
+    "the",
+    "that",
+    "their",
+    "these",
+    "this",
+    "using",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
+    "or",
+}
+
+
+def _content_terms(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.casefold())
+        if len(token) >= 3 and token not in _REQUIREMENT_STOPWORDS
+    }
+
+
+def _filter_requirements_for_query(query: str, requirements: list[str]) -> list[str]:
+    """Drop planner details with no lexical connection to the user question."""
+
+    query_terms = _content_terms(query)
+    if not query_terms:
+        return requirements
+    filtered = [
+        item for item in requirements if query_terms.intersection(_content_terms(item))
+    ]
+    return filtered or requirements
+
+
+def _expand_requirements_from_context(
+    requirements: list[str],
+    chunks: list[RetrievedChunk],
+    *,
+    query: str = "",
+) -> list[str]:
+    """Restore qualifiers by replacing a summary with its best source sentence."""
+
+    sentences: list[tuple[str, str]] = []
+    for chunk in chunks:
+        plain = re.sub(r"<[^>]+>", "", chunk.text)
+        sentences.extend(
+            (chunk.citation, sentence.strip())
+            for sentence in re.split(r"(?<=[.!?])\s+", plain)
+            if sentence.strip()
+        )
+
+    expanded: list[str] = []
+    how_question = bool(re.search(r"\bhow\b", query, re.IGNORECASE))
+    method_markers = re.compile(
+        r"\b(method|technique|model|algorithm|approach|combin|using|used|incorporat|propos)",
+        re.IGNORECASE,
+    )
+    for requirement in requirements:
+        terms = _content_terms(requirement)
+        best_sentence = ""
+        best_source = ""
+        best_index = -1
+        best_score = 0.0
+        intent_text = f"{query} {requirement}"
+        change_intent = bool(
+            re.search(
+                r"\b(change|changes|changed|difference|increase|decrease|measured)\b",
+                intent_text,
+                re.IGNORECASE,
+            )
+        )
+        for index, (source, sentence) in enumerate(sentences):
+            score = float(len(terms.intersection(_content_terms(sentence))))
+            numeric_tokens = re.findall(r"\d+(?:\.\d+)?", sentence)
+            score += min(len(numeric_tokens), 6) * 0.2
+            if re.search(r"\bp\s*(?:=|<|>)", sentence, re.IGNORECASE):
+                score += 2.0
+            if change_intent and re.search(
+                r"\b(increased?|decreased?|absolute difference|relative difference)\b",
+                sentence,
+                re.IGNORECASE,
+            ):
+                score += 4.0
+            if score > best_score:
+                best_score = score
+                best_sentence = sentence
+                best_source = source
+                best_index = index
+        candidate = best_sentence if best_score >= 2 and len(best_sentence) <= 900 else requirement
+        if how_question and best_index > 0:
+            prefixes: list[str] = []
+            for offset in (1, 2):
+                previous_index = best_index - offset
+                if previous_index < 0:
+                    break
+                previous_source, previous = sentences[previous_index]
+                if previous_source == best_source and method_markers.search(previous):
+                    prefixes.append(previous)
+            prefixes.reverse()
+            combined = " ".join([*prefixes, candidate])
+            if len(combined) <= 1200:
+                candidate = combined
+        if candidate not in expanded:
+            expanded.append(candidate)
+    return expanded
+
+
+def _format_requirements(requirements: Any, fallback: str) -> str:
+    items = _unique_texts(requirements, limit=8) or [fallback]
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _retrieval_queries(state: AgentState) -> list[str]:
+    """Combine the original question, component searches, and latest rewrite."""
+
+    original = state.get("original_query") or state["query"]
+    planned = _unique_texts(state.get("search_queries", []), limit=3)
+    current = state.get("query", original)
+    return _unique_texts([original, *planned, current], limit=4)
+
+
+def _boundary_sentence(value: str, fallback: str) -> str:
+    text = " ".join(value.split()).strip() or fallback
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
 # ── Node: route_query ──────────────────────────────────────────────────────────
 
 def route_query(state: AgentState) -> dict:
@@ -169,15 +369,43 @@ def route_query(state: AgentState) -> dict:
     it is preserved for audit / downstream use.
     """
     llm = make_llm_fast()
-    query = state["query"]
+    query = state.get("original_query") or state["query"]
 
-    raw = _invoke_with_retry(llm, [
+    _, parsed = _invoke_json_with_retry(llm, [
         SystemMessage(content=ROUTER_SYSTEM),
         HumanMessage(content=ROUTER_USER.format(query=query)),
-    ])
-    parsed = _parse_json(raw)
+    ], required_keys=("type",))
 
     query_type = parsed.get("type", "factual")
+    search_queries = _unique_texts(parsed.get("search_queries", []), limit=3)
+    answer_requirements = _unique_texts(
+        parsed.get("answer_requirements", []),
+        limit=4,
+    )
+    if not search_queries:
+        search_queries = [query]
+    if not answer_requirements:
+        answer_requirements = [query]
+    source_scope = str(parsed.get("source_scope", "")).strip().lower()
+    if source_scope not in {"single_study", "multi_source", "general"}:
+        if "supplied" in query.casefold():
+            source_scope = "single_study"
+        elif query_type in {"synthesis", "multihop"} and len(search_queries) > 1:
+            source_scope = "multi_source"
+        else:
+            source_scope = "general"
+    answer_mode = str(parsed.get("answer_mode", "")).strip().lower()
+    evidence_boundary = bool(
+        re.match(r"^\s*(does|do|did|has|have|can|is|are)\b", query, re.IGNORECASE)
+        and re.search(r"\b(study|evidence|documents?|paper|trial)\b", query, re.IGNORECASE)
+    )
+    if evidence_boundary:
+        answer_mode = "evidence_boundary"
+    elif answer_mode == "evidence_boundary":
+        answer_mode = "compare" if source_scope == "multi_source" else "direct"
+    elif answer_mode not in {"direct", "compare"}:
+        answer_mode = "compare" if source_scope == "multi_source" else "direct"
+    answer_requirements = _filter_requirements_for_query(query, answer_requirements)
     logger.info("[route] query_type=%s  reason=%s", query_type, parsed.get("reason", ""))
 
     # Preserve the original query before any rewrites happen; used by append_history
@@ -186,6 +414,10 @@ def route_query(state: AgentState) -> dict:
         "query": query,
         "original_query": query,
         "query_type": query_type,
+        "source_scope": source_scope,
+        "answer_mode": answer_mode,
+        "search_queries": search_queries,
+        "answer_requirements": answer_requirements,
         "iterations": state.get("iterations", 0),
         "regen_count": state.get("regen_count", 0),
     }
@@ -199,36 +431,59 @@ def hybrid_retrieve(state: AgentState) -> dict:
     Returns top-CANDIDATE_K candidates (reranker will shrink to TOP_K).
     If retrieval fails, returns empty list so grade node can handle it.
     """
-    query = state["query"]
-    logger.info("[retrieve] query=%s", query[:80])
+    queries = _retrieval_queries(state)
+    logger.info("[retrieve] queries=%s", [query[:80] for query in queries])
 
     try:
         retriever = _get_retriever()
-        chunks = retriever.retrieve(query, k=CANDIDATE_K)
+        groups = [
+            {"query": query, "chunks": retriever.retrieve(query, k=PER_QUERY_K)}
+            for query in queries
+        ]
+        chunks_by_id: dict[str, RetrievedChunk] = {}
+        for group in groups:
+            for chunk in group["chunks"]:
+                chunks_by_id.setdefault(chunk.chunk_id, chunk)
+        chunks = list(chunks_by_id.values())
     except Exception as exc:
         logger.error("[retrieve] error: %s", exc)
         chunks = []
+        groups = []
 
-    logger.info("[retrieve] got %d candidates", len(chunks))
-    return {"retrieved_chunks": chunks}
+    logger.info("[retrieve] got %d unique candidates from %d queries", len(chunks), len(groups))
+    return {"retrieved_chunks": chunks, "retrieval_groups": groups}
 
 
 # ── Node: rerank_chunks ────────────────────────────────────────────────────────
 
 def rerank_chunks(state: AgentState) -> dict:
     """Cross-encoder reranking: shrink CANDIDATE_K → TOP_K."""
-    query = state["query"]
+    query = state.get("original_query") or state["query"]
     chunks = state.get("retrieved_chunks", [])
+    groups = state.get("retrieval_groups", [])
 
     if not chunks:
         return {"retrieved_chunks": []}
 
     try:
         reranker = _get_reranker()
-        reranked = reranker.rerank(query, chunks, top_k=TOP_K)
+        grouped = [
+            (str(group.get("query", query)), list(group.get("chunks", [])))
+            for group in groups
+            if group.get("chunks")
+        ]
+        if grouped and hasattr(reranker, "rerank_grouped"):
+            reranked = reranker.rerank_grouped(grouped, top_k=TOP_K)
+        else:
+            reranked = reranker.rerank(query, chunks, top_k=TOP_K)
     except Exception as exc:
         logger.error("[rerank] error: %s — falling back to top-%d by score", exc, TOP_K)
         reranked = sorted(chunks, key=lambda c: -c.score)[:TOP_K]
+
+    if state.get("source_scope") == "single_study" and reranked:
+        target_source = reranked[0].citation
+        reranked = [chunk for chunk in reranked if chunk.citation == target_source]
+        logger.info("[rerank] single-study scope retained source %s", target_source)
 
     logger.info("[rerank] kept top %d chunks", len(reranked))
     return {"retrieved_chunks": reranked}
@@ -243,19 +498,43 @@ def grade_relevance(state: AgentState) -> dict:
     Returns relevance_score (0-1), grade_reason, rewrite_hint.
     """
     llm = make_llm_think()
-    query = state["query"]
+    query = state.get("original_query") or state["query"]
     chunks = state.get("retrieved_chunks", [])
     context = _format_context(chunks) if chunks else "(no chunks retrieved)"
+    requirements = _format_requirements(state.get("answer_requirements", []), query)
+    source_scope = state.get("source_scope", "general")
+    answer_mode = state.get("answer_mode", "direct")
 
-    raw = _invoke_with_retry(llm, [
+    _, parsed = _invoke_json_with_retry(llm, [
         SystemMessage(content=GRADE_SYSTEM),
-        HumanMessage(content=GRADE_USER.format(query=query, context=context)),
-    ])
-    parsed = _parse_json(raw)
+        HumanMessage(content=GRADE_USER.format(
+            query=query,
+            requirements=requirements,
+            source_scope=source_scope,
+            answer_mode=answer_mode,
+            context=context,
+        )),
+    ], required_keys=("relevant", "score"))
 
     score       = float(parsed.get("score", 0.0))
     reason      = str(parsed.get("reason", ""))
     rewrite_hint = str(parsed.get("rewrite_hint", ""))
+    required_details = _filter_requirements_for_query(
+        query,
+        _unique_texts(parsed.get("required_details", []), limit=8),
+    )
+    existing_requirements = _filter_requirements_for_query(
+        query,
+        _unique_texts(state.get("answer_requirements", []), limit=8),
+    )
+    if answer_mode == "evidence_boundary":
+        final_requirements = existing_requirements
+    else:
+        final_requirements = _expand_requirements_from_context(
+            required_details or existing_requirements,
+            chunks,
+            query=query,
+        )
 
     # Dynamic threshold based on query type from router
     query_type = state.get("query_type", "synthesis")
@@ -274,6 +553,7 @@ def grade_relevance(state: AgentState) -> dict:
         "relevant": relevant,
         "grade_reason": reason,
         "rewrite_hint": rewrite_hint,
+        "answer_requirements": final_requirements,
     }
 
 
@@ -286,15 +566,20 @@ def rewrite_query(state: AgentState) -> dict:
     Also appends the old query to rewritten_queries for audit.
     """
     llm = make_llm_think()
-    original_query = state["query"]
+    original_query = state.get("original_query") or state["query"]
     previous_rewrites = state.get("rewritten_queries", [])
     reason = state.get("grade_reason", "")
     hint   = state.get("rewrite_hint", "")
+    requirements = _format_requirements(
+        state.get("answer_requirements", []),
+        original_query,
+    )
 
     raw = _invoke_with_retry(llm, [
         SystemMessage(content=REWRITE_SYSTEM),
         HumanMessage(content=REWRITE_USER.format(
             query=original_query,
+            requirements=requirements,
             previous_rewrites=", ".join(previous_rewrites) or "none",
             reason=reason,
             hint=hint,
@@ -330,9 +615,12 @@ def generate_answer_node(state: AgentState) -> dict:
          triggering one regen attempt via the graph's inc_regen path.
     """
     llm = make_llm_fast()
-    query  = state["query"]
+    query = state.get("original_query") or state["query"]
     chunks = state.get("retrieved_chunks", [])
     context = _format_context(chunks) if chunks else "(no context available)"
+    requirements = _format_requirements(state.get("answer_requirements", []), query)
+    source_scope = state.get("source_scope", "general")
+    answer_mode = state.get("answer_mode", "direct")
     regen_count = state.get("regen_count", 0)
     faith_issues = state.get("faithfulness_issues", "")
 
@@ -340,25 +628,39 @@ def generate_answer_node(state: AgentState) -> dict:
     if regen_count > 0 and faith_issues:
         system_prompt = REGEN_SYSTEM.format(faithfulness_issues=faith_issues)
         user_prompt = REGEN_USER.format(
-            query=query, context=context, faithfulness_issues=faith_issues)
+            query=query,
+            requirements=requirements,
+            source_scope=source_scope,
+            answer_mode=answer_mode,
+            context=context,
+            faithfulness_issues=faith_issues,
+        )
         logger.info("[generate] regen attempt #%d — using REGEN prompt", regen_count)
     else:
         system_prompt = GENERATE_SYSTEM
-        user_prompt = GENERATE_USER.format(query=query, context=context)
+        user_prompt = GENERATE_USER.format(
+            query=query,
+            requirements=requirements,
+            source_scope=source_scope,
+            answer_mode=answer_mode,
+            context=context,
+        )
 
-    raw = _invoke_with_retry(llm, [
+    raw, parsed = _invoke_json_with_retry(llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_prompt),
-    ])
+    ], required_keys=("claims", "evidence_status"))
     if not raw.strip():
         logger.warning("[generate] LLM returned completely empty response after retry")
     else:
         logger.debug("[generate] raw response (%d chars): %s", len(raw), raw[:300])
-    parsed = _parse_json(raw)
-
     # ── Citation-grounded validation ──────────────────────────────────────
     claims_raw: list[dict] = parsed.get("claims", [])
     confidence: float = float(parsed.get("confidence", 0.5))
+    evidence_status = str(parsed.get("evidence_status", "complete")).strip().lower()
+    if evidence_status not in {"complete", "partial", "insufficient"}:
+        evidence_status = "complete"
+    evidence_gap = str(parsed.get("evidence_gap", "")).strip()
 
     if not claims_raw:
         # LLM returned old-style {answer, citations} or empty claims
@@ -374,8 +676,39 @@ def generate_answer_node(state: AgentState) -> dict:
     validated_claims = validate_citations(claims_raw, chunks)
     answer, citations = build_answer_from_claims(validated_claims)
 
-    if not validated_claims:
+    if answer_mode == "evidence_boundary" and evidence_status != "complete":
+        evidence_status = "insufficient"
+        evidence_gap = _boundary_sentence(
+            evidence_gap,
+            "The retrieved documents do not establish the requested outcome",
+        )
+        answer = evidence_gap
+        citations = []
+        confidence = 0.0
+    elif evidence_status == "insufficient":
+        evidence_gap = _boundary_sentence(
+            evidence_gap,
+            "The retrieved documents do not provide enough information to answer the requested question",
+        )
+        answer = evidence_gap
+        citations = []
+        confidence = 0.0
+    elif evidence_status == "partial":
+        evidence_gap = _boundary_sentence(
+            evidence_gap,
+            "The retrieved documents do not support every requested answer component",
+        )
+        answer = f"{answer} {evidence_gap}" if validated_claims else evidence_gap
+        if not validated_claims:
+            confidence = 0.0
+    elif not validated_claims:
         # All claims failed citation validation — signal to check node
+        evidence_status = "insufficient"
+        evidence_gap = _boundary_sentence(
+            evidence_gap,
+            "The retrieved documents do not contain sufficient cited evidence to answer this question",
+        )
+        answer = evidence_gap
         confidence = 0.0
         logger.warning("[generate] all claims failed citation validation — answer set to disclaimer")
 
@@ -385,6 +718,8 @@ def generate_answer_node(state: AgentState) -> dict:
         "answer": answer,
         "citations": citations,
         "confidence": confidence,
+        "evidence_status": evidence_status,
+        "evidence_gap": evidence_gap,
     }
 
 
@@ -399,21 +734,52 @@ def check_faithfulness(state: AgentState) -> dict:
     llm = make_llm_think()
     chunks = state.get("retrieved_chunks", [])
     answer = state.get("answer", "")
+    query = state.get("original_query") or state.get("query", "")
+    requirements = _format_requirements(state.get("answer_requirements", []), query)
+    evidence_status = state.get("evidence_status", "complete")
+    evidence_gap = state.get("evidence_gap", "")
+    source_scope = state.get("source_scope", "general")
+    answer_mode = state.get("answer_mode", "direct")
     context = _format_context(chunks) if chunks else "(no context)"
 
-    raw = _invoke_with_retry(llm, [
+    _, parsed = _invoke_json_with_retry(llm, [
         SystemMessage(content=CHECK_SYSTEM),
-        HumanMessage(content=CHECK_USER.format(context=context, answer=answer)),
-    ])
-    parsed = _parse_json(raw)
+        HumanMessage(content=CHECK_USER.format(
+            context=context,
+            query=query,
+            requirements=requirements,
+            source_scope=source_scope,
+            answer_mode=answer_mode,
+            evidence_status=evidence_status,
+            evidence_gap=evidence_gap,
+            answer=answer,
+        )),
+    ], required_keys=("supported", "complete", "boundary_correct"))
 
-    faithful = bool(parsed.get("faithful", False))
-    issues   = str(parsed.get("issues", ""))
+    supported = bool(parsed.get("supported", False))
+    complete = bool(parsed.get("complete", False))
+    boundary_correct = bool(parsed.get("boundary_correct", False))
+    faithful = supported and complete and boundary_correct
+    issues = str(parsed.get("issues", ""))
+    if not faithful and not issues:
+        failed = [
+            label
+            for label, passed in (
+                ("claim support", supported),
+                ("answer completeness", complete),
+                ("evidence boundary", boundary_correct),
+            )
+            if not passed
+        ]
+        issues = f"Failed checks: {', '.join(failed)}."
 
     logger.info("[check] faithful=%s", faithful)
     return {
         "faithful": faithful,
         "faithfulness_issues": issues,
+        "answer_supported": supported,
+        "answer_complete": complete,
+        "boundary_correct": boundary_correct,
     }
 
 
@@ -495,4 +861,5 @@ __all__ = [
     "GRADE_THRESHOLD",
     "_GRADE_THRESHOLDS",
     "HISTORY_SUMMARIZE_EVERY",
+    "PER_QUERY_K",
 ]

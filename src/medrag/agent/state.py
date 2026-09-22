@@ -26,12 +26,27 @@ class AgentState(TypedDict):
     """Router classification: 'factual' | 'synthesis' | 'multihop'.
     Used by grade_relevance for dynamic threshold selection."""
 
+    source_scope: str
+    """Whether evidence must stay within one study, combine sources, or is general."""
+
+    answer_mode: str
+    """Direct answer, cross-source comparison, or evidence-boundary decision."""
+
+    search_queries: list[str]
+    """Focused retrieval queries produced by the router for multi-part questions."""
+
+    answer_requirements: list[str]
+    """Explicit components that a complete answer must cover."""
+
     rewritten_queries: Annotated[list[str], add]
     """Accumulates each query rewrite for audit / tracing."""
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
     retrieved_chunks: list[RetrievedChunk]
     """Top-k chunks after reranking, ready for the generator."""
+
+    retrieval_groups: list[dict]
+    """Per-query candidate groups retained for coverage-aware reranking."""
 
     # ── Grading ──────────────────────────────────────────────────────────────
     relevance_score: float
@@ -61,9 +76,24 @@ class AgentState(TypedDict):
     confidence: float
     """Self-reported confidence 0-1 from the generate node."""
 
+    evidence_status: str
+    """Generator decision: complete, partial, or insufficient."""
+
+    evidence_gap: str
+    """Explicit boundary statement when requested evidence is missing."""
+
     # ── Faithfulness check ───────────────────────────────────────────────────
     faithful: bool
-    """True if check node confirms the answer is grounded in context."""
+    """True only when support, completeness, and evidence boundary all pass."""
+
+    answer_supported: bool
+    """Whether every material answer claim is supported by retrieved context."""
+
+    answer_complete: bool
+    """Whether every requested answer component is covered or bounded."""
+
+    boundary_correct: bool
+    """Whether the answer refuses or qualifies unsupported requests correctly."""
 
     faithfulness_issues: str
     """Description of hallucinated claims (empty if faithful)."""
