@@ -70,6 +70,28 @@ def test_explicit_cohort_counts_survive_an_omitted_model_population_field():
     assert "31 patients and 29 controls" in repaired[-1]["text"]
 
 
+def test_html_isotopes_and_thousands_separators_do_not_trigger_duplicate_quotes():
+    source = chunk(text="[<sup>64</sup>Cu]Cu-probe uptake was 4.2%. We enrolled 1,234 patients.")
+    components = bind_components([{
+        "requirement": "Uptake", "status": "supported", "evidence_ids": ["E1"],
+        "required_details": ["[<sup>64</sup>Cu]Cu-probe uptake was 4.2%."],
+    }], [], [source])
+    claims = [{"component_id": "C1", "text": "[64Cu]Cu-probe uptake was 4.2% in 1234 patients.", "cite": ["PMID:1"]}]
+    assert restore_numeric_quotes(components, claims) == claims
+    claims[0]["text"] = "[64Cu]Cu-probe uptake was 4.2%."
+    assert "1,234 patients" in restore_numeric_quotes(components, claims)[-1]["text"]
+
+
+def test_model_population_field_cannot_add_unrelated_method_sentences():
+    source = chunk(text="The probe uses isotope 64. Uptake was 4.2%.")
+    result = bind_components([{
+        "requirement": "Uptake", "status": "supported", "evidence_ids": ["E2"],
+    }], [], [source], [{"chunk_id": source.chunk_id, "quote": "The probe uses isotope 64.",
+                       "required_details": ["isotope 64"]}])
+    assert len(result[0]["evidence"]) == 1
+    assert not result[0]["required_details"]
+
+
 def test_omitted_answer_does_not_mean_source_evidence_is_missing():
     from medrag.agent.nodes import check_faithfulness
     llm = MagicMock()

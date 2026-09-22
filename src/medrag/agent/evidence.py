@@ -48,6 +48,13 @@ def source_spans(chunks: list[RetrievedChunk]) -> dict[str, dict]:
     return spans
 
 
+def _has_population_count(text: str) -> bool:
+    return bool(re.search(
+        r"\b\d[\d,]*\s+(?:[\w-]+\s+){0,3}(?:patients?|participants?|controls?|veterans?|subjects?|women|men|children|volunteers?|births|images|examinations|animals?|mice|rats)\b",
+        normalized(text),
+    ))
+
+
 def bind_components(
     raw: object, requirements: list[str], chunks: list[RetrievedChunk], study_context: object = None,
 ) -> list[dict]:
@@ -125,7 +132,7 @@ def bind_components(
     explicit_populations = [
         {**span, "required_details": [span["quote"]]}
         for span in spans.values()
-        if re.search(r"\b\d[\d,]*\s+(?:[\w-]+\s+){0,3}(?:patients?|participants?|controls?|veterans?|subjects?|women|men|children|volunteers?|births|images|examinations)\b", normalized(span["quote"]))
+        if _has_population_count(span["quote"])
         and re.search(r"\b(included|enrolled|recruited|analy[sz]ed|randomi[sz]ed|using|underwent|comprised)\b", normalized(span["quote"]))
     ]
     contexts = [*(study_context if isinstance(study_context, list) else []), *explicit_populations]
@@ -137,6 +144,8 @@ def bind_components(
         try:
             span = EvidenceSpan.model_validate(value)
         except (ValidationError, TypeError):
+            continue
+        if not _has_population_count(span.quote):
             continue
         source = by_id.get(span.chunk_id)
         if not source or not normalized(span.quote) or normalized(span.quote) not in normalized(source.text):
@@ -212,6 +221,8 @@ def bind_claims(claims: list[dict], components: list[dict]) -> tuple[list[dict],
 def missing_numeric_details(components: list[dict], claims: list[dict]) -> dict[str, list[str]]:
     """Catch omitted bound numbers; semantic support still needs source review."""
     def numbers(text: str) -> set[Decimal]:
+        text = normalized(text)
+        text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
         return {Decimal(n) for n in re.findall(r"(?<![\w.])(?:\d*\.\d+|\d+)(?!\w)", text)}
 
     missing = {}
