@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 repair — 2026-09-22 (unpublished development candidate)
+
+- Preserve full user-derived subquestions before retrieval; match each study before final chunk selection and review its evidence separately.
+- Keep development/test roles, actors, null contrasts and method steps in complete source sentences. Preserve cited design explanations separately.
+- Separate missing outcome data from missing comparative data. Keep refusal wording tied to the requested outcome.
+- Require a structured check for every component and avoid reasoning-only output exhaustion.
+- Save two independent focus runs (6/6 and 6/6) and a separate full development run (15/15), with 0 unsupported additions and 0 execution errors in the full run. Preserve all earlier failures.
+- Add `recompute_saved_agent.py --version v0.4-repaired`; older version selections retain their meaning.
+
+See [the repair report](docs/agent-v0.4-repaired-report.md). No stable tag, push or held-out test evaluation is implied.
+
 ## 0.4.0 — 2026-09-22 (unpublished development candidate)
 
 - Bind each answer component to its requested study, exact source quotation, required details and explicit evidence gap.

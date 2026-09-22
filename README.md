@@ -6,9 +6,10 @@ VeritasMed connects a React interface to a LangGraph agent: retrieve literature 
 
 **v0.4 development candidate** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
-This candidate adds component-level evidence, explicit gaps and source navigation. Its development
-evaluation is complete, but the planned answer-quality targets were not reached. The comparison below
-retains the [published v0.3.0](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0) baseline and all failures.
+This candidate adds component-level evidence, explicit gaps and source navigation. The latest repair
+passes **15/15 development questions**, compared with 9/15 in the first candidate,
+with **0 unsupported additions** in that run. The 35-question test split remains unused.
+See the [repair results and limitations](docs/agent-v0.4-repaired-report.md); the original failures remain available.
 
 ![VeritasMed guided example: partial evidence coverage and source-linked answer](docs/assets/v04-evidence-coverage.png)
 
@@ -75,18 +76,18 @@ The launcher indexes the bundled summaries with BGE-M3, starts the API and front
 
 The demo stores vectors and checkpoints under `.demo-runtime/`, uses collection `medrag_demo`, and does not reset the research collection `medrag_text`. **Explore works without an LLM key** after the models and fixture are installed. Live Ask also needs valid model access. The fixture contains three authored summaries about fastMRI and fastMRI+, not the original articles, medical records or MRI files; see its [provenance](data/demo/README.md).
 
-**Tried from a fresh directory:** Windows, Python 3.12.7, all 163 locked CPU dependencies, indexing,
+**Installation/interface trial on the first v0.4 candidate:** Windows, Python 3.12.7, all 163 locked CPU dependencies, indexing,
 API/frontend startup and a real Ollama `qwen3.5:9b` answer with a visible evidence gap and working
 source navigation. That demo answer took 57.48 seconds; model downloads were cached. The separate
 research benchmark used CPU embeddings and CUDA reranking. `medgemma1.5:4b` helped review the
 dataset earlier; it did not independently score these v0.4 answers. Docker, MiMo and macOS/Linux
-execution remain unverified. See the [v0.4 report](docs/agent-v0.4-report.md) for the measured limits.
+execution remain unverified. See the [repair report](docs/agent-v0.4-repaired-report.md) for the latest production-Agent results; the installation trial predates the repair.
 
 ## What the project demonstrates
 
 - **Retrieval:** BGE-M3 dense and sparse embeddings, Qdrant hybrid retrieval and a BGE cross-encoder reranker. Explore exposes P2 hybrid and P3 reranked search.
 - **Source-bound answers:** each requested part has a matching study, exact source passage, required details and an explicit gap when evidence is missing. Ask uses the full [agent workflow](docs/agent-workflow.md).
-- **Targeted repair:** missing details or an imprecise gap can be repaired without replacing the other components. Omitted bound numbers can be restored as attributed source quotations.
+- **Targeted repair:** missing details or an imprecise gap can be repaired without replacing the other components. Critical numerical and method results preserve full attributed source sentences, keeping actors, sample roles and comparisons together.
 - **Inspectable answers:** complete, partial and insufficient coverage, expandable quotations, source-linked citations and streamed node activity. Coverage and self-check are not correctness scores.
 - **Reproducibility:** dependency lock, frozen corpus hashes, a claim-level 50-question benchmark, saved real answers and an offline command to recompute their metrics.
 
@@ -115,45 +116,44 @@ The v1.1 audit retained 39 contracts and revised 11. `qwen3.5:9b` generated a fr
 
 The real production Agent graph was run on development only with `qwen3.5:9b`, BGE-M3 hybrid retrieval and CUDA reranking. The test split remains untouched.
 
-| Development result | v0.3 | v0.4 candidate |
-|---|---:|---:|
-| Required-claim Recall@5, 13 answerable questions | 100.0% | 96.2% |
-| All required claims found@5 | 13/13 | 12/13 |
-| nDCG@5 / MRR@5 | 0.9546 / 0.9487 | 0.9467 / 0.9487 |
-| Mapped core-claim completeness / citation coverage | 100.0% / 100.0% | 96.7% / 96.7% |
-| Answerability score | 93.3% | 93.3% |
-| Missing required qualifiers, total | 5 | 2 |
-| Unsupported or incorrectly scoped additions | 2 | 3 |
-| Strict passes | 10/15 (66.7%) | **9/15 (60.0%)** |
-| Execution errors | 0 | 1 |
-| Mean retained-attempt latency | 91.3 s | 84.8 s |
+| Development result | v0.3 | First v0.4 candidate | Repaired v0.4 |
+|---|---:|---:|---:|
+| All required evidence found@5 | 13/13 | 12/13 | 13/13 |
+| Missing required qualifiers, total | 5 | 2 | 0 |
+| Unsupported or incorrectly scoped additions | 2 | 3 | 0 |
+| Strict passes | 10/15 | 9/15 | 15/15 |
+| Execution errors | 0 | 1 | 0 |
+| Mean retained-attempt latency | 91.3 s | 84.8 s | 71.1 s |
 
-The v0.4 implementation at `a945a8f` was run twice on six focus questions (**5/6** and **4/6**),
-then separately on all 15 development questions. The full run was paused at the user's request after
-six answers and resumed with those answers unchanged. No answers were selected across runs. Latency
-includes failed attempts and the extra cold startup, but excludes the pause and an interrupted
-pre-answer attempt. Full-run VMG-042 and focus B's VMG-014 returned no answer after invalid structured
-output; their times were 227.0 and 381.2 seconds. The web API has a 300-second deadline.
+The repaired implementation `46b2888` was run independently on the six focus
+questions twice (**6/6** and **6/6**), followed by a separate full
+15-question development run. All outputs are retained; no best-of selection was used. The seven
+debugging probes and the first independent repair round are archived separately. Reported timings include startup and failed attempts.
 
-**Answer quality has not improved overall in this run.** The planned 13/15 target was missed.
-Within-study sample scope, a refusal rationale and required comparison details remain problematic;
-one second study was not retrieved. These failures are retained in the reports. All decisions were
-made by Codex against frozen source passages, without independent clinician review. The model's own
-check passed 11/15 and missed three strict failures; it is not the scoring authority. The **35-question
-test split remains unused**, and neither it nor the scoring rules was changed to rescue the result.
+The original 13/15, zero-unsupported-additions and 13/13 evidence-retrieval targets are
+**met** in this development evaluation.
+Answers retain more source wording and can be repetitive. Model self-check still makes mistakes;
+it is not the scoring authority. Full-run SCAR-Net (009) answers the requested facts but remains
+labelled partial because the planner added an unrequested confidence-interval gap. Strict content
+scoring does not capture that label error. Hemodialysis (032) also has a false partial label: its
+null contrast is fully present but the checker incorrectly calls it missing. All semantic decisions were made by Codex against frozen passages,
+without independent clinician review. Development success is not evidence of unseen or clinical reliability.
+The **35-question test split remains unused** and the gold/scoring rules are unchanged.
 
-[v0.4 report](docs/agent-v0.4-report.md) · [All 15 real attempts and evidence](docs/agent-v0.4-cases.md) · [Focus A](docs/agent-v0.4-focus-a-cases.md) · [Focus B](docs/agent-v0.4-focus-b-cases.md) · [v0.3 comparison](docs/agent-v0.3-report.md) · [v1.1 dataset and v0.2 baseline](docs/benchmark-v1.1-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md) · [Frozen questions](data/benchmark/veritasmed_v1_1/questions.jsonl)
+[Repair report](docs/agent-v0.4-repaired-report.md) · [All 15 real answers](docs/agent-v0.4-repaired-cases.md) · [Focus A](docs/agent-v0.4-repaired-focus-a-cases.md) · [Focus B](docs/agent-v0.4-repaired-focus-b-cases.md) · [First v0.4 candidate](docs/agent-v0.4-report.md) · [v0.3 baseline](docs/agent-v0.3-report.md) · [Dataset card](data/benchmark/veritasmed_v1_1/dataset_card.md)
 
-Recompute the saved scores without a model, GPU, raw corpus or full backend installation:
+Recompute saved scores without a model, GPU, raw corpus or full backend installation:
 
 ```sh
 python -m pip install "pydantic>=2.7,<3"
-python scripts/benchmark/recompute_saved_agent.py --version v0.4
+python scripts/benchmark/recompute_saved_agent.py --version v0.4-repaired
 ```
 
-Omit `--version` to reproduce the preserved v0.3 default. This reapplies the published assessments and
-metric arithmetic; it does not independently judge new answers. [The v0.4 manifest](data/benchmark/veritasmed_v1_1/agent_v04_manifest.json)
-records all three runs, settings, hashes and the pause/resume provenance.
+Use `--version v0.4` for the first candidate or omit the option for the preserved v0.3 default.
+This reapplies saved assessments and arithmetic; it does not independently judge new answers.
+[The repair manifest](data/benchmark/veritasmed_v1_1/agent_v04_repaired_manifest.json) records all three
+formal runs, settings, hashes and debugging archives.
+
 Dataset maintenance commands remain available:
 
 ```sh
@@ -229,4 +229,4 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 
 Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). See the
 [v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md) and
-[implementation record](docs/agent-v0.4-worklog.md) for completed work and unresolved answer-quality problems.
+[repair report](docs/agent-v0.4-repaired-report.md) for current outcomes and limitations. The [first implementation record](docs/agent-v0.4-worklog.md) preserves the initial candidate results.

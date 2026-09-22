@@ -14,6 +14,7 @@ flowchart LR
   G -->|source not found, budget left| W[Rewrite query]
   W --> R
   G --> A[Generate each supported component]
+  K -->|Same-study result sentences| A
   A --> C[Check support, details and evidence gaps]
   C -->|specific repairs, budget left| A
   C --> F[Answer, gaps and expandable quotations]
@@ -58,7 +59,7 @@ benchmark answers, question IDs or adjudications.
 ## Generation and targeted repair
 
 Every generated claim carries a component ID and references only citations bound to that
-component. A claim with an unknown component or wrong source is rejected. Supported results
+component. A claim with an unknown component or wrong source is rejected. Generation
 can recover sentences missed by the outline: generation sees global sentence IDs for the selected
 sources and declares which support each claim. Those IDs are bound only within the component's
 existing study; they cannot upgrade a missing outcome or add another study. The actual quote is
@@ -119,7 +120,7 @@ steps; an already running synchronous model request may finish in the background
 ## Results and limitations
 
 The first candidate achieved 9/15 strict development passes; see the [v0.4 report](agent-v0.4-report.md).
-The current fixes are being evaluated separately in the [repair worklog](agent-v0.4-repair-worklog.md).
+The independent repaired run passes 15/15; see the [repair report](agent-v0.4-repaired-report.md) and [worklog](agent-v0.4-repair-worklog.md).
 The [v0.3 report](agent-v0.3-report.md) remains the published baseline.
 The 35-question test split has not been used during v0.4 development.
 

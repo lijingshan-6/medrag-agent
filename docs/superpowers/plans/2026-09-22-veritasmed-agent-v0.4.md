@@ -1,5 +1,7 @@
 # VeritasMed v0.4 实施计划：逐项回答，逐项对应证据
 
+后续具体失败修复已完成本轮独立运行：15/15，原定开发效果目标达成。见 [修复报告](../../agent-v0.4-repaired-report.md) 和 [修复记录](../../agent-v0.4-repair-worklog.md)。原候选结果与以下历史计划保留；35 道测试题尚未使用。
+
 制定日期：2026-09-22。状态：候选版实现与交付完成，效果目标未达成；真实运行记录见 [实施记录](../../agent-v0.4-worklog.md)。
 
 基线是已推送的 [`v0.3.0`](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0)
