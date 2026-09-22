@@ -4,7 +4,7 @@
 
 VeritasMed connects a React interface to a LangGraph agent: retrieve literature passages, rerank them, assess the evidence, rewrite a weak query, generate a cited answer, and check it against the retrieved context. This repository is a **local research showcase**, not a clinically validated assistant.
 
-**v0.3.0 local showcase candidate** · Python 3.12 · Node.js 22.12+ · Apache-2.0
+**[v0.3.0 research showcase](https://github.com/lijingshan-6/medrag-agent/tree/v0.3.0)** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
 ![VeritasMed guided example: answer, workflow and cited evidence](docs/assets/guided-desktop.png)
 
@@ -202,6 +202,6 @@ Default tests isolate checkpoints, disable local dotenv configuration and do not
 | `tests/` | Offline behavior and contract regressions |
 | `docs/` | Audit, plan, evaluation, validation and release notes |
 
-[Demo walkthrough / optional Docker](docs/demo.md) · [v0.3.0 release notes](docs/releases/v0.3.0.md) · [Changelog](CHANGELOG.md) · [Implementation plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.3.md)
+[Demo walkthrough / optional Docker](docs/demo.md) · [v0.3.0 release notes](docs/releases/v0.3.0.md) · [Changelog](CHANGELOG.md) · [Completed v0.3 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.3.md) · [Next: v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md)
 
-Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The next improvement is an answer outline that binds each requested component to its study, evidence span and missing qualifiers, followed by repeat-run development measurements before using the untouched test split.
+Code and repository-authored demo text are distributed under [Apache-2.0](LICENSE). The [v0.4 plan](docs/superpowers/plans/2026-09-22-veritasmed-agent-v0.4.md) binds each requested component to its study, evidence span and missing qualifiers, exposes evidence gaps in the interface, and measures repeat-run behavior before using the untouched test split. This is planned work; the current implementation remains v0.3.0.
