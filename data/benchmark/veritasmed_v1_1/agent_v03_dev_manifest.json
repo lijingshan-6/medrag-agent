@@ -93,8 +93,8 @@
     "questions.jsonl": "d31c54cfe6847b53c72f96630f5047f90617dda87ab953c563a0e9246177056e",
     "agent_v03_candidate_dev_raw.json": "f1ba1a7d3155beb6b39241844f46e3c23689c22dd7d3541af9b903aa32c55c6f",
     "agent_v03_dev_raw.json": "f7623ad6ac9709d58c7b78fd68becadc2c706a19b6688dc7e5de17e21ade504d",
-    "answer_assessment_overrides_v03_dev.jsonl": "964edbcf42b147eac4d5888dc086a33ca8cf8d928764f5e9ce24f7c86ac50cc5",
-    "agent_v03_dev_scored.json": "08d4801c5dc7b3c51e5a9d355195e7b08a4713fc9ec4cb7c1486ef3c0ce6df0d"
+    "answer_assessment_overrides_v03_dev.jsonl": "d214bab43c1e99c7c9adf1ebd015be36b067ae58c64e8b6d219cf4e02bf8d042",
+    "agent_v03_dev_scored.json": "24092d5c05b598b580917a4c177190edae96210baa38a244f98446afe25c621f"
   },
   "validation": {
     "python_tests_passed": 150,

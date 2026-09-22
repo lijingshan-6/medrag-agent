@@ -25,10 +25,10 @@ def main() -> None:
     report = recompute_saved_run(args.questions, args.answers, args.assessments)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     if args.cases:
         args.cases.parent.mkdir(parents=True, exist_ok=True)
-        args.cases.write_text(render_cases(report, args.questions), encoding="utf-8")
+        args.cases.write_text(render_cases(report, args.questions), encoding="utf-8", newline="\n")
     print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
 
 
