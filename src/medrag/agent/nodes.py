@@ -29,7 +29,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from medrag.agent.evidence import (
     bind_claims, bind_components, missing_numeric_details, outline_status, repair_gaps, restore_numeric_quotes,
-    preserve_result_context, source_spans,
+    bind_additional_evidence, normalized, preserve_result_context, source_spans,
 )
 from medrag.agent.llms import make_llm_fast, make_llm_think
 from medrag.agent.prompts import (
@@ -199,7 +199,7 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(parts)
 
 
-def _format_outline(components: list[dict], *, include_quotes: bool) -> str:
+def _format_outline(components: list[dict], *, include_quotes: bool, all_spans: dict | None = None) -> str:
     """Avoid copying the same source paragraph into every prompt component."""
     evidence = []
     compact = []
@@ -209,10 +209,12 @@ def _format_outline(components: list[dict], *, include_quotes: bool) -> str:
         for span in component["evidence"]:
             if span not in evidence:
                 evidence.append(span)
-            references.append(f"E{evidence.index(span) + 1}")
+            references.append(next((k for k, v in (all_spans or {}).items() if v == span),
+                                   f"B{evidence.index(span) + 1}"))
         item["evidence_ids"] = references
         compact.append(item)
-    spans = {f"E{i + 1}": (span if include_quotes else {k: v for k, v in span.items() if k != "quote"})
+    spans = {next((k for k, v in (all_spans or {}).items() if v == span), f"B{i + 1}"):
+             (span if include_quotes else {k: v for k, v in span.items() if k != "quote"})
              for i, span in enumerate(evidence)}
     return json.dumps({"components": compact, "source_passages": spans}, ensure_ascii=False)
 
@@ -588,6 +590,34 @@ def hybrid_retrieve(state: AgentState) -> dict:
 
 # ── Node: rerank_chunks ────────────────────────────────────────────────────────
 
+def _source_cards(search: str, ranked: list[RetrievedChunk]) -> dict[str, dict]:
+    """Keep explicitly named identifiers from being crowded out by similar papers.
+
+    The narrow letter/digit pattern covers named targets and tracer/model codes,
+    not general medical acronyms. A match is necessary, not sufficient: the
+    model still distinguishes original studies from background mentions.
+    """
+    identifiers = [t for t in re.findall(r"\b[A-Za-z0-9]+(?:[-–][A-Za-z0-9]+)*\b", search)
+                   if re.search(r"[A-Za-z]", t) and re.search(r"\d", t)]
+    def has_identifier(identifier, value):
+        parts = re.findall(r"[a-z]+|\d+", normalized(identifier))
+        pattern = r"(?<![a-z0-9])" + r"[\W_]*".join(map(re.escape, parts)) + r"(?![a-z0-9])"
+        return bool(re.search(pattern, normalized(value)))
+    cards = {}
+    for chunk in ranked:
+        if str(chunk.payload.get("section", "")).upper() in {"REF", "REFERENCES"}:
+            continue
+        title = chunk.payload.get("title", "")
+        passage = chunk.text[:1600]
+        identity = f"{title} {passage}"
+        if identifiers and not all(has_identifier(t, identity) for t in identifiers):
+            continue
+        cards.setdefault(chunk.citation, {"citation": chunk.citation, "title": title, "passage": passage})
+        if len(cards) == 4:
+            break
+    return cards
+
+
 def rerank_chunks(state: AgentState) -> dict:
     """Rank each search, match its study, then select the final evidence budget."""
     query = state.get("original_query") or state["query"]
@@ -607,24 +637,21 @@ def rerank_chunks(state: AgentState) -> dict:
         reranker = _get_reranker()
         ranked_groups = reranker.rank_groups(grouped)
 
-        def source_candidates(ranked):
-            cards = {}
-            for c in ranked:
-                cards.setdefault(c.citation, {"citation": c.citation, "title": c.payload.get("title", ""), "passage": c.text[:1600]})
-                if len(cards) == 4:
-                    break
-            return cards
-
         if source_scope == "multi_source" and len(grouped) > 1:
             # Match the individual searches, not one long list in which a small
             # model can answer the first half and silently forget the second.
-            match_groups = [(q, source_candidates(r)) for (q, _), r in zip(grouped, ranked_groups, strict=True) if q != query]
+            all_ranked = [c for ranked in ranked_groups for c in ranked]
+            match_groups = [(q, _source_cards(q, [*r, *all_ranked]))
+                            for (q, _), r in zip(grouped, ranked_groups, strict=True) if q != query]
         else:
             cards = {}
             for ranked in ranked_groups:
-                cards.update(source_candidates(ranked))
+                cards.update(_source_cards(query, ranked))
             match_groups = [(query, cards)]
         for search, cards in match_groups:
+            if not cards:
+                unmatched.append(search)
+                continue
             _, selection = _invoke_json_with_retry(make_llm_fast(structured=True), [
                 SystemMessage(content=(
                     "Identify the original study requested by THIS SEARCH COMPONENT of the question. "
@@ -917,8 +944,9 @@ def generate_answer_node(state: AgentState) -> dict:
     requirements = _format_requirements(state.get("answer_requirements", []), query)
     components = state.get("answer_components", [])
     if components:
-        requirements += "\nSource-bound answer outline (cover each ID):\n" + _format_outline(components, include_quotes=True)
-        context = "Use the exact source_passages in the bound outline above."
+        spans = source_spans(chunks)
+        requirements += "\nSource-bound answer outline (cover each ID):\n" + _format_outline(components, include_quotes=False, all_spans=spans)
+        context = "\n".join(f"[{key}] [{span['citation']}]: {span['quote']}" for key, span in spans.items())
     repair_ids = state.get("repair_component_ids", [])
     source_scope = state.get("source_scope", "general")
     answer_mode = state.get("answer_mode", "direct")
@@ -988,6 +1016,7 @@ def generate_answer_node(state: AgentState) -> dict:
         if regen_count > 0 and repair_ids:
             retained = [c for c in state.get("answer_claims", []) if c.get("component_id") not in repair_ids]
             claims_raw = retained + [c for c in claims_raw if isinstance(c, dict) and c.get("component_id") in repair_ids]
+        components = bind_additional_evidence(claims_raw, components, chunks)
         claims_raw, binding_issues = bind_claims(claims_raw, components)
         evidence_status, evidence_gap = outline_status(components)
 

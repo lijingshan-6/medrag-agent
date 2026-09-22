@@ -90,7 +90,7 @@ def _make_llm(thinking: bool, *, reasoning: bool = False, structured: bool | dic
             format=structured if isinstance(structured, dict) else ("json" if structured else None),
             # Qwen's general thinking profile uses sampling. Greedy reasoning
             # exhausted the output budget without a final answer in development.
-            temperature=1.0 if reasoning else (0.0 if thinking else 0.2),
+            temperature=1.0 if reasoning else (0.0 if thinking or structured else 0.2),
             top_p=0.95,
             top_k=20,
             repeat_penalty=1.0,

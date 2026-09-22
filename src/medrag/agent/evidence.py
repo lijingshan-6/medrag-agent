@@ -77,6 +77,10 @@ def population_scope_issue(text: str, component: dict) -> bool:
     This is a narrow guard for plainly labelled populations, not an entailment
     score. Ambiguous sentences with several roles still need semantic review.
     """
+    if text.startswith('The study reports: "') and text.endswith('"'):
+        quoted = normalized(text[len('The study reports: "'):-1])
+        if any(quoted == normalized(s["quote"]) for s in component["evidence"]):
+            return False  # An exact sentence has not paraphrased a cohort's role.
     counts = _population_counts(text)
     for span in component["evidence"]:
         quote = normalized(span["quote"])
@@ -113,6 +117,7 @@ def bind_components(
     components = []
     for value in raw if isinstance(raw, list) else []:
         missing_basis = value.get("missing_basis", "") if isinstance(value, dict) else ""
+        missing_outcome = value.get("missing_outcome", "") if isinstance(value, dict) else ""
         if isinstance(value, dict) and "evidence_ids" in value:
             ids = value["evidence_ids"] if isinstance(value["evidence_ids"], list) else []
             chosen = [key for key in ids if isinstance(key, str) and key in spans]
@@ -181,7 +186,16 @@ def bind_components(
         elif lost_evidence and component.status == "supported":
             component.status = "partial"
         if component.status != "supported":
-            component.gap = _bounded_gap(component.requirement, missing_basis)
+            gap_subject = component.requirement
+            # An open question about what remains untested needs a concrete
+            # outcome phrase. Fixed yes/no outcome/comparison contracts retain
+            # their original requirement, and no causal story is accepted here.
+            if (not missing_basis and isinstance(missing_outcome, str)
+                    and 5 <= len(missing_outcome.strip()) <= 300
+                    and not re.search(r"\b(because|due to|there were|there was)\b|^(?:no |identify |explain |what |which )", missing_outcome, re.I)
+                    and re.search(r"\b(untested|unknown|unanswered|clinical effects?|real-world|prospective)\b", component.requirement, re.I)):
+                gap_subject = missing_outcome.strip()
+            component.gap = _bounded_gap(gap_subject, missing_basis)
         if component.status == "supported":
             component.gap = ""
         component.answer = ""
@@ -282,6 +296,39 @@ def bind_claims(claims: list[dict], components: list[dict]) -> tuple[list[dict],
             if not any(c.get("component_id") == component["id"] for c in accepted):
                 issues.append(f"{component['id']}: answer omitted {component['requirement']}")
     return accepted, issues
+
+
+def bind_additional_evidence(
+    claims: list[dict], components: list[dict], chunks: list[RetrievedChunk],
+) -> list[dict]:
+    """Let generation recover a missed sentence, within the same bound study.
+
+    Global sentence IDs resolve only to retrieved text. A generator cannot use
+    them to upgrade a missing outcome or move another paper's result into this
+    component. Semantic relevance remains the source reviewer's responsibility.
+    """
+    spans = source_spans(chunks)
+    updated = [AnswerComponent.model_validate(c).model_dump() for c in components]
+    by_id = {c["id"]: c for c in updated}
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        component = by_id.get(claim.get("component_id"))
+        if not component or component["status"] == "missing":
+            continue
+        allowed = {s["citation"] for s in component["evidence"]}
+        citations = claim.get("cite", [])
+        ids = claim.get("evidence_ids", [])
+        if not isinstance(ids, list) or not isinstance(citations, list):
+            continue
+        for key in ids:
+            span = spans.get(key) if isinstance(key, str) else None
+            if span and span["citation"] in allowed and span["citation"] in citations:
+                if span not in component["evidence"]:
+                    component["evidence"].append(dict(span))
+                if span["quote"] not in component["required_details"]:
+                    component["required_details"].append(span["quote"])
+    return updated
 
 
 def missing_numeric_details(components: list[dict], claims: list[dict]) -> dict[str, list[str]]:

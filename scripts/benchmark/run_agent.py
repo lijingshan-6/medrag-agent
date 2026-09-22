@@ -143,6 +143,9 @@ def run(args: argparse.Namespace) -> None:
         existing = {}
     results: list[dict[str, Any]] = []
     provenance = _git_provenance(root)
+    from medrag.agent.llms import make_llm_fast, make_llm_think
+    fast_llm = make_llm_fast(structured=True)
+    review_llm = make_llm_think(structured=True)
     runtime_config = {
         "embedder": "BAAI/bge-m3",
         "embedder_device": args.embedder_device,
@@ -151,16 +154,16 @@ def run(args: argparse.Namespace) -> None:
         "ollama_fast_reasoning": False,
         "ollama_review_reasoning": False,
         "structured_outputs": "Ollama JSON mode for route, study matching, outline and generation; per-component JSON Schema for check",
-        "fast_num_predict": 4096,
-        "review_num_predict": 4096,
-        "fast_context_tokens": 8192,
-        "review_context_tokens": 8192,
-        "fast_temperature": 0.2,
-        "review_temperature": 0.0,
-        "boundary_outline_temperature": 0.0,
-        "top_p": 0.95,
-        "top_k": 20,
-        "repeat_penalty": 1.0,
+        "fast_num_predict": fast_llm.num_predict,
+        "review_num_predict": review_llm.num_predict,
+        "fast_context_tokens": fast_llm.num_ctx,
+        "review_context_tokens": review_llm.num_ctx,
+        "fast_temperature": fast_llm.temperature,
+        "review_temperature": review_llm.temperature,
+        "boundary_outline_temperature": review_llm.temperature,
+        "top_p": fast_llm.top_p,
+        "top_k": fast_llm.top_k,
+        "repeat_penalty": fast_llm.repeat_penalty,
         "model_default_presence_penalty": 1.5,
         "request_timeout_seconds": args.timeout,
     }

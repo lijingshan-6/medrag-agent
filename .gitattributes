@@ -9,6 +9,7 @@
 *.png binary
 data/benchmark/veritasmed_v1_1/*_log.txt text eol=lf
 data/benchmark/veritasmed_v1_1/v04_repair_probes/*_log.txt text eol=lf
+data/benchmark/veritasmed_v1_1/v04_repair_round1/*_log.txt text eol=lf
 data/benchmark/veritasmed_v1_1/v04_repair_probes/*.patch -text
 
 # Preserve immutable historical artifact bytes and their recorded hashes.

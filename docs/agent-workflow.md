@@ -26,7 +26,11 @@ the user's question. These are both search queries and later answering tasks; th
 and results when both were requested. Retrieval includes
 the original question and latest rewrite, with at most four distinct queries and 12 candidates
 per query. Each query's candidates are ranked before source matching, which sees the four highest
-ranked distinct studies per component query (their union for a single-study question). Matching
+ranked distinct studies per component query (their union for a single-study question).
+Explicit alphanumeric target/model identifiers must occur in the title or passage before this
+four-study limit; reference-list chunks cannot identify a primary study. Candidate pools can
+share a matching study across component searches. These checks narrow identity errors but do
+not prove identity or support. Matching
 happens before the final five-chunk truncation. Grouped selection retains the best evidence within those matching studies,
 allowing two components to share the same study or passage. It retains up to five chunks.
 
@@ -55,6 +59,11 @@ benchmark answers, question IDs or adjudications.
 
 Every generated claim carries a component ID and references only citations bound to that
 component. A claim with an unknown component or wrong source is rejected. Supported results
+can recover sentences missed by the outline: generation sees global sentence IDs for the selected
+sources and declares which support each claim. Those IDs are bound only within the component's
+existing study; they cannot upgrade a missing outcome or add another study. The actual quote is
+then available to the interface and source review, not just a citation to a nearby definition.
+Supported results
 and gaps are assembled into the final answer. Boundary questions do not substitute adjacent
 diagnostic results for unsupported clinical conclusions.
 
@@ -62,6 +71,9 @@ Evidence-boundary questions assess whether the requested outcomes were measured 
 requested comparison is actually supported. Measured survival in a single arm cannot demonstrate
 superiority over an absent control. The original question retains its outcomes and comparator together.
 Missing components default to a statement of the unestablished outcome/comparison. They do not
+echo instructions such as "identify what remains untested": open questions use a specific missing
+outcome/setting phrase, checked against the source. Fixed yes/no questions retain their requested
+outcomes and comparator. Gaps do not
 generate a free-form explanation of why data are absent. The source text is deduplicated in
 prompts so repeated component quotations do not crowd out the original question or instructions.
 
@@ -93,7 +105,7 @@ self-reported confidence remains in the API for compatibility but is not shown a
 
 The current local model is Ollama `qwen3.5:9b`, with an 8,192-token context and a 4,096-token output
 limit for both tiers. Routing, source-identity selection and generation use direct output at
-temperature 0.2; ordinary grading and checking use direct output at temperature 0.0.
+temperature 0.0; ordinary grading and checking also use direct output at temperature 0.0.
 The current repair uses direct output for boundary outlines too, and Ollama JSON mode for all
 structured steps; checking additionally uses a schema requiring a decision for each component.
 This prevents a reasoning trace from consuming the final-output budget, but

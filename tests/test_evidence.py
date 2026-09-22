@@ -337,3 +337,51 @@ def test_design_quote_does_not_replace_causal_explanation():
                                   "evidence_ids": ["E1"], "required_details": [source.text]}], [], [source])
     claims = [{"component_id": "C1", "text": "The cross-sectional design cannot establish a causal treatment benefit.", "cite": ["PMID:1"]}]
     assert preserve_result_context(components, claims) == claims
+
+
+def test_generator_recovers_actual_result_only_from_its_bound_study():
+    from medrag.agent.evidence import bind_additional_evidence, preserve_result_context
+    source = chunk(text="The endpoint was volume change. Volume increased by 2.3 units at 6 months; P = .02.")
+    neighbor = chunk("2", "Survival improved by 30%.")
+    components = bind_components([{"requirement": "Measured volume change", "status": "supported",
+                                  "evidence_ids": ["E1"]}], [], [source, neighbor])
+    claim = {"component_id": "C1", "text": "Volume increased.", "cite": ["PMID:1"],
+             "evidence_ids": ["E2", "E3", "E999"]}
+    recovered = bind_additional_evidence([claim], components, [source, neighbor])
+    quotes = [s["quote"] for s in recovered[0]["evidence"]]
+    assert source.text.split('. ', 1)[1] in quotes
+    assert neighbor.text not in quotes
+    assert any("2.3 units at 6 months" in c["text"] for c in preserve_result_context(recovered, [claim]))
+    missing = [dict(components[0], status="missing")]
+    assert bind_additional_evidence([claim], missing, [source, neighbor]) == missing
+
+
+def test_named_identifier_is_not_crowded_out_or_matched_in_references():
+    from medrag.agent.nodes import _source_cards
+    wrong = [chunk(str(i), "A receptor imaging study targeting RX20.") for i in range(2, 7)]
+    reference = chunk("7", "References: RX2 tumor imaging study.")
+    reference.payload['section'] = 'REF'
+    target = chunk(text="Preclinical RX-2 targeted imaging found specific uptake.")
+    assert list(_source_cards("What did the RX2 imaging study find?", [*wrong, reference, target])) == ['PMID:1']
+    assert not _source_cards("What did the RX3 imaging study find?", [*wrong, reference, target])
+
+
+def test_open_boundary_names_missing_effect_without_invented_explanation():
+    source = chunk(text="The workflow was simulated using patient records and biopsy results.")
+    raw = {"requirement": "Identify the real-world clinical effect that remains untested",
+           "status": "missing", "evidence_ids": ["E1"],
+           "missing_outcome": "prospective deployment effects on patient care"}
+    components = bind_components([raw], [], [source])
+    assert components[0]["gap"] == "The retrieved evidence does not establish: prospective deployment effects on patient care."
+    raw['missing_outcome'] = 'patient benefit because there were no patients'
+    assert 'no patients' not in bind_components([raw], [], [source])[0]['gap']
+
+
+def test_exact_population_quote_does_not_inherit_another_sentences_role():
+    source = chunk(text="The workflow was simulated on 40 examinations. The 40 examinations were used for testing.")
+    components = bind_components([{"requirement": "Study workflow", "status": "supported",
+                                  "evidence_ids": ["E1", "E2"]}], [], [source])
+    claim = {'component_id': 'C1', 'cite': ['PMID:1'],
+             'text': 'The study reports: "The workflow was simulated on 40 examinations."'}
+    accepted, issues = bind_claims([claim], components)
+    assert accepted == [claim] and not issues
