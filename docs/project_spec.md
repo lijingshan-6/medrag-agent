@@ -1,4 +1,4 @@
-> Architecture-oriented development document. The historical metrics in section 1.3 are superseded. For v0.2.0 behavior and measured results, use the repository README and `docs/benchmark-v1.1-report.md`.
+> Historical project specification. Model defaults, metrics and planned behavior below describe earlier development stages, not the current implementation. Use the [Agent workflow](agent-workflow.md), [current model decision](decisions/2026-09-23-flash-research-baseline.md) and [documentation index](README.md) for maintained guidance and results.
 
 # VeritasMed — 自校验医学文献智能问答系统
 

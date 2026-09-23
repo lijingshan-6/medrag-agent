@@ -241,6 +241,61 @@ def test_development_count_cannot_be_used_as_validation_denominator():
     assert correct and not issues
 
 
+def test_validation_cannot_claim_same_cohort_without_a_bound_basis():
+    from medrag.agent.evidence import population_scope_issue
+    component = {"evidence": [{"quote": "Multicenter validation improved reader accuracy."}]}
+    assert population_scope_issue("Validation used the same four-hospital dataset.", component)
+    assert population_scope_issue("The model was then validated in a separate multicenter validation set.", component)
+    assert not population_scope_issue("Multicenter validation improved reader accuracy.", component)
+    explicit = {"evidence": [{"quote": "Validation used the same dataset in cross-validation."}]}
+    assert not population_scope_issue("Validation used the same dataset.", explicit)
+    independent = {"evidence": [{"quote": "An independent cohort was used for validation."}]}
+    assert not population_scope_issue("Validation used an independent cohort.", independent)
+
+
+def test_quote_recovery_does_not_hide_rejected_explanation():
+    from medrag.agent.nodes import generate_answer_node
+    # No explicit cross-sectional design: the narrow design repair cannot apply.
+    source = chunk(text="The 2020 study was observational.")
+    components = bind_components([{"requirement": "Explain causal limits", "status": "supported",
+        "evidence_ids": ["E1"], "required_details": [source.text]}], [], [source])
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content=json.dumps({"claims": [{"component_id": "C1",
+        "text": "Measurements were simultaneous at a single time point, so causality is unproven.",
+        "cite": ["PMID:1"]}], "evidence_status": "complete"}))
+    with patch("medrag.agent.nodes.make_llm_fast", return_value=llm):
+        result = generate_answer_node({"query": "Explain the design's causal limit",
+            "retrieved_chunks": [source], "answer_components": components})
+    assert '2020' in result['answer']
+    assert any('unreported timing' in issue for issue in result['binding_issues'])
+
+
+def test_critical_facts_cannot_gain_an_unreported_mechanism_in_paraphrasing():
+    from medrag.agent.nodes import generate_answer_node
+    source = chunk(text="The area increased by 0.4 units at 6 months, P = .02.")
+    components = bind_components([{"requirement": "Measured area change", "status": "supported",
+        "evidence_ids": ["E1"], "required_details": [source.text]}], [], [source])
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content=json.dumps({"claims": [{"component_id": "C1",
+        "text": "Area increased by 0.4 units because the implant dissolved.", "cite": ["PMID:1"]}],
+        "evidence_status": "complete"}))
+    with patch("medrag.agent.nodes.make_llm_fast", return_value=llm):
+        result = generate_answer_node({"query": "What was the measured change?",
+            "retrieved_chunks": [source], "answer_components": components})
+    assert "dissolved" not in result['answer']
+    assert source.text in result['answer']
+    assert result['repair_history'][0]['kind'] == 'source_projection'
+
+
+def test_nonnumeric_control_contrast_is_not_lost():
+    source = chunk(text="Signal was high in positive tumor models, whereas uptake in negative tumors was lower.")
+    components = bind_components([{"requirement": "Compare localization", "status": "supported",
+        "evidence_ids": ["E1"]}], [], [source])
+    claim = {"component_id": "C1", "text": "Signal was high in positive tumor models.", "cite": ["PMID:1"]}
+    restored = restore_numeric_quotes(components, [claim])
+    assert any("negative tumors was lower" in c["text"] for c in restored)
+
+
 def test_null_comparison_and_nonnumeric_method_are_restored():
     source = chunk(text="Pressure correlated with mass (P = 0.02), whereas exposure duration did not (P = 0.7). The method combined rotated sampling with Hadamard encoding.")
     components = bind_components([{
@@ -306,28 +361,111 @@ def test_complete_digits_do_not_erase_who_was_assisted():
     assert "The model increased" not in result[0]["text"]
 
 
-def test_separate_study_plans_keep_global_evidence_ids():
+def test_joint_study_plan_keeps_both_sources_and_original_question():
     from medrag.agent.nodes import grade_relevance
     first = chunk(text="Method A reduced scan time.")
     second = chunk("2", "Method B reduced noise.")
     llm = MagicMock()
-    llm.invoke.side_effect = [MagicMock(content=json.dumps({"relevant": True, "score": .9,
-        "components": [{"requirement": requirement, "status": "supported", "evidence_ids": [evidence]}]}))
-        for requirement, evidence in [("Method A result", "E1"), ("Method B result", "E2")]]
+    llm.invoke.return_value = MagicMock(content=json.dumps({"relevant": True, "score": .9,
+        "components": [{"requirement": requirement, "status": "supported", "evidence_ids": [evidence]}
+                       for requirement, evidence in [("Method A result", "E1"), ("Method B result", "E2")]]}))
     with patch("medrag.agent.nodes.make_llm_think", return_value=llm):
         result = grade_relevance({"query": "Compare method A and method B", "source_scope": "multi_source",
-                                 "selected_sources": ["PMID:1", "PMID:2"], "retrieved_chunks": [first, second],
-                                 "source_queries": {"PMID:1": ["Method A result"], "PMID:2": ["Method B result"]}})
+                                 "selected_sources": ["PMID:1", "PMID:2"], "retrieved_chunks": [first, second]})
     assert [c["evidence"][0]["citation"] for c in result["answer_components"]] == ["PMID:1", "PMID:2"]
-    assert "Method B reduced noise" not in llm.invoke.call_args_list[0].args[0][1].content
-    assert "Query: Method A result" in llm.invoke.call_args_list[0].args[0][1].content
-    assert "[E2]" in llm.invoke.call_args_list[1].args[0][1].content
+    prompt = llm.invoke.call_args.args[0][1].content
+    assert "Method B reduced noise" in prompt and "Method A reduced scan time" in prompt
+    assert "Query: Compare method A and method B" in prompt
+    assert "[E1]" in prompt and "[E2]" in prompt
 
 
 def test_check_schema_requires_each_gap_decision():
     from medrag.agent.nodes import _check_schema
     schema = _check_schema([{"id": "C1"}, {"id": "C2"}])
     assert schema["properties"]["component_checks"]["required"] == ["C1", "C2"]
+
+
+def test_source_cards_keep_descriptive_suffix_candidates_and_disclose_mismatches():
+    from medrag.agent.nodes import _source_cards
+    source = chunk(text="RX2 uptake was measured in tumor models.")
+    assert list(_source_cards("RX2-targeted imaging results?", [source])) == ["PMID:1"]
+    assert list(_source_cards("RX2-expressing models?", [source])) == ["PMID:1"]
+    assert _source_cards("RX3-targeted imaging results?", [source])["PMID:1"]["unmatched_identifiers"] == ["RX3"]
+    assert _source_cards("RX2-A imaging results?", [source])["PMID:1"]["unmatched_identifiers"] == ["RX2-A"]
+
+
+def test_partial_gap_does_not_deny_the_supported_result():
+    component = bind_components([{"requirement": "Accuracy and admissions", "status": "partial",
+        "evidence_ids": ["E1"], "missing_outcome": "effects on hospital admissions"}], [], [chunk()])[0]
+    assert component["gap"] == "The retrieved evidence does not establish: effects on hospital admissions."
+    assert "Accuracy" not in component["gap"]
+
+
+def test_string_details_remain_whole_and_paraphrased_contract_keeps_source():
+    source = chunk(text="We included 3455 births. Validation used simulated and experimental images.")
+    result = bind_components([{"requirement": "Validation", "status": "supported",
+        "evidence_ids": ["E2"], "required_details": ["Validation with both data types"]}], [], [source],
+        [{"evidence_id": "E1", "required_details": "3455 births"}])
+    assert "3455 births" in result[0]["required_details"]
+    assert "3" not in result[0]["required_details"]
+    assert "Validation used simulated and experimental images." in result[0]["required_details"]
+
+
+def test_design_label_cannot_become_unreported_measurement_timing():
+    source = chunk(text="This was a cross-sectional study of flow and ventricular mass.")
+    components = bind_components([{"requirement": "Causal limitation", "status": "supported",
+        "evidence_ids": ["E1"]}], [], [source])
+    claims, issues = bind_claims([{"component_id": "C1", "text": "The study measured flow and mass simultaneously.",
+        "cite": ["PMID:1"]}], components)
+    assert not claims and any("unreported timing" in issue for issue in issues)
+    safe = {"component_id": "C1", "text": "The cross-sectional association does not establish an intervention benefit.", "cite": ["PMID:1"]}
+    assert bind_claims([safe], components)[0] == [safe]
+
+
+def test_timing_repair_keeps_causal_explanation_without_inventing_a_protocol():
+    from medrag.agent.evidence import repair_design_scope
+    source = chunk(text="This was a cross-sectional study of exposure and outcome.")
+    components = bind_components([{"requirement": "Why causal benefit cannot be established",
+                                  "status": "supported", "evidence_ids": ["E1"]}], [], [source])
+    unsafe = {"component_id": "C1", "text": "Concurrently measured variables cannot establish benefit.",
+              "cite": ["PMID:1"]}
+    repaired = repair_design_scope(components, [unsafe])
+    assert source.text in repaired[0]["text"]
+    assert "changing the exposure" in repaired[0]["text"]
+    assert "concurrent" not in repaired[0]["text"].lower()
+    assert bind_claims(repaired, components)[0] == repaired
+    assert repair_design_scope(components, repaired) == repaired
+    longitudinal = bind_components([{"requirement": "Causal limitation", "status": "supported",
+                                     "evidence_ids": ["E1"]}], [],
+                                   [chunk(text="This was a longitudinal observational study.")])
+    assert repair_design_scope(longitudinal, [unsafe]) == [unsafe]
+    assert not bind_claims([unsafe], longitudinal)[0]
+
+
+def test_review_reads_and_repairs_the_displayed_gap_with_the_answer():
+    from medrag.agent.nodes import check_faithfulness
+    source = chunk(text="Method A improved images in phantom and patient tests.")
+    component = bind_components([{"requirement": "Validation findings", "status": "partial",
+        "evidence_ids": ["E1"], "missing_outcome": "quantitative validation metrics"}], [], [source])[0]
+    component.update(answer=source.text, source_hint="PMID:1")
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content=json.dumps({
+        "supported": True, "complete": False, "boundary_correct": False,
+        "component_checks": {"C1": {"passed": False, "evidence_status": "supported",
+            "requirement_requested": True, "unsupported_source_inference": False,
+            "gap": "", "missing_outcome": "", "correction": "Remove the unrequested quantitative gap"}},
+    }))
+    with patch("medrag.agent.nodes.make_llm_think", return_value=llm):
+        result = check_faithfulness({"query": "What validation findings did methods A and B report?",
+            "source_scope": "multi_source", "selected_sources": ["PMID:1", "PMID:2"],
+            "retrieved_chunks": [source], "answer_components": [component],
+            "answer_claims": [{"component_id": "C1", "text": source.text, "cite": ["PMID:1"]}],
+            "answer": source.text + ' ' + component["gap"], "evidence_status": "partial"})
+    prompt = llm.invoke.call_args.args[0][1].content
+    assert source.text in prompt and component["gap"] in prompt
+    assert result["answer_components"][0]["status"] == "supported"
+    assert result["evidence_gap"] == ""
+    assert "quantitative" not in result["answer"]
 
 
 def test_design_quote_does_not_replace_causal_explanation():
@@ -362,8 +500,12 @@ def test_named_identifier_is_not_crowded_out_or_matched_in_references():
     reference = chunk("7", "References: RX2 tumor imaging study.")
     reference.payload['section'] = 'REF'
     target = chunk(text="Preclinical RX-2 targeted imaging found specific uptake.")
-    assert list(_source_cards("What did the RX2 imaging study find?", [*wrong, reference, target])) == ['PMID:1']
-    assert not _source_cards("What did the RX3 imaging study find?", [*wrong, reference, target])
+    cards = _source_cards("What did the RX2 imaging study find?", [*wrong, reference, target])
+    assert next(iter(cards)) == 'PMID:1'
+    assert 'PMID:7' not in cards
+    assert cards['PMID:1']['matched_identifiers'] == ['RX2']
+    assert all(c['unmatched_identifiers'] == ['RX3'] for c in
+               _source_cards("What did the RX3 imaging study find?", [*wrong, reference, target]).values())
 
 
 def test_open_boundary_names_missing_effect_without_invented_explanation():

@@ -15,3 +15,7 @@ data/benchmark/veritasmed_v1_1/v04_repair_probes/*.patch -text
 # Preserve immutable historical artifact bytes and their recorded hashes.
 data/eval/*.json -text
 data/golden/* -text
+
+# Runtime snapshots retain the exact bytes used for their provenance hashes.
+data/benchmark/veritasmed_v1_1/**/runtime_code/** -text
+data/benchmark/veritasmed_v1_1/deepseek_comparison*/implementation/** -text

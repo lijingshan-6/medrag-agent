@@ -1,12 +1,30 @@
 # Changelog
 
+## 0.4.0 — 2026-09-23 (local research showcase)
+
+- Add the OpenHub backend with streaming and per-question model selection for the complete Agent.
+- Preserve the Pro/Flash development comparison, repeat, all 44 completed answers and source-first assessments; see the [comparison report](docs/agent-model-comparison-report.md).
+- Select `deepseek-v4.1-flash` as the continuing research baseline at the user's request because of Pro's token cost, superseding the initial Pro recommendation. Keep the measured results unchanged.
+- Make the research runner default to Flash only; paired Pro/Flash runs require explicitly selecting both models. Align configuration examples, workflow and demo guidance with that choice.
+- Add a [documentation index](docs/README.md) distinguishing active guidance, experimental records and historical designs.
+
+- Prioritize source identities without rejecting descriptive suffixes; plan and review the whole original question, including evidence gaps.
+- Preserve rejected claims through quotation recovery and target unsupported protocol timing and development/validation cohort relationships.
+- Render critical factual components from selected source sentences while keeping requested design explanations generative; preserve all development failures and source-first reviews in the [Flash report](docs/agent-v0.4-flash-report.md).
+- Retain the fourth development run's five billing errors. Continue with a fresh full run after the user supplied a different compatible Flash gateway; record its exact endpoint/model separately and retain missing usage as unavailable.
+
+- Complete final Flash development (15/15), independent repetition (10/10) and one post-freeze held-out evaluation (31/35), retaining all four test failures and unchanged scoring.
+- Record zero execution errors and no observed unsupported material additions in those three runs; preserve the omitted claims/boundaries, one missing endpoint qualifier and coverage disagreements.
+- Exercise current Flash Live Ask, source expansion, retrieval/document navigation and Markdown export; add actual screenshots and restore source-page styling and scrolling.
+- Package the full runtime snapshot, offline report commands and [v0.4.0 version notes](docs/releases/v0.4.0.md). No remote push or GitHub Release is implied.
+
 ## 0.4.0 repair — 2026-09-22 (unpublished development candidate)
 
 - Preserve full user-derived subquestions before retrieval; match each study before final chunk selection and review its evidence separately.
 - Keep development/test roles, actors, null contrasts and method steps in complete source sentences. Preserve cited design explanations separately.
 - Separate missing outcome data from missing comparative data. Keep refusal wording tied to the requested outcome.
 - Require a structured check for every component and avoid reasoning-only output exhaustion.
-- Save two independent focus runs (6/6 and 6/6) and a separate full development run (15/15), with 0 unsupported additions and 0 execution errors in the full run. Preserve all earlier failures.
+- Save two independent Qwen `qwen3.5:9b` focus runs (6/6 and 6/6) and a separate full development run (15/15), with 0 unsupported additions and 0 execution errors in the full run. Preserve all earlier failures.
 - Add `recompute_saved_agent.py --version v0.4-repaired`; older version selections retain their meaning.
 
 See [the repair report](docs/agent-v0.4-repaired-report.md). No stable tag, push or held-out test evaluation is implied.

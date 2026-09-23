@@ -1,4 +1,4 @@
-> Historical development document. The old graph, thresholds, memory and corpus counts below are superseded. For current behavior, read [the v0.3 Agent workflow](agent-workflow.md) and the repository README.
+> Historical development document. The old graph, thresholds, memory and corpus counts below are superseded. For current behavior, read the [Agent workflow](agent-workflow.md). Use the [documentation index](README.md) for current configuration, model choice and measured results.
 
 # MedRAG-Agent — Architecture Reference
 

@@ -214,6 +214,28 @@ textarea, input, select { font-family: inherit; color: inherit; }
 .vm-pulse   { animation: vmPulse 1.4s ease-in-out infinite; }
 
 /* ── Focus rings ─────────────────────────────────────────────────────────────── */
+.vm-document { height: 100%; overflow-y: auto; }
+.vm-document-body { max-width: 980px; margin: 0 auto; padding: 32px 28px 72px; }
+.vm-document-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 36px; }
+.vm-document-link { display: inline-flex; align-items: center; gap: 7px; border: 0; padding: 6px 0; background: transparent; color: var(--accent-ink); font: 500 13px var(--sans); text-decoration: none; cursor: pointer; }
+.vm-document-link:hover { text-decoration: underline; }
+.vm-document-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; color: var(--muted); font: 11px var(--mono); }
+.vm-document-citation { padding: 5px 9px; border-radius: 5px; background: var(--accent-soft); color: var(--accent-ink); }
+.vm-document-heading { margin-bottom: 30px; }
+.vm-document-heading h1 { margin: 18px 0 0; font: 400 clamp(28px, 4vw, 42px)/1.2 var(--serif); color: var(--ink); overflow-wrap: anywhere; }
+.vm-document-passages { display: grid; gap: 16px; }
+.vm-document-passage { padding: 24px; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+.vm-document-passage p { margin: 16px 0 0; color: var(--ink-soft); font: 15px/1.85 var(--sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.vm-document-footer { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--rule); }
+.vm-document-ask { display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 12px 18px; border: 0; border-radius: 7px; background: var(--ink); color: var(--canvas); font: 500 13px var(--sans); cursor: pointer; }
+.vm-document-ask:hover { opacity: .85; }
+.vm-document-status { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 14px; }
+@media (max-width: 600px) {
+  .vm-document-body { padding: 24px 16px 48px; }
+  .vm-document-passage { padding: 18px; }
+  .vm-document-nav { margin-bottom: 24px; }
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

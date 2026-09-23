@@ -58,3 +58,35 @@ def test_structured_review_requests_json_without_consuming_reasoning_budget(monk
     assert model.format == "json"
     assert model.reasoning is False
     assert llms.make_llm_fast().format is None
+
+
+def test_openhub_preserves_reasoning_and_uses_selected_model_for_both_tiers(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "openhub")
+    monkeypatch.setenv("OPENHUB_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENHUB_API_KEY", "unit-test-placeholder")
+    monkeypatch.setenv("OPENHUB_MODEL", "DeepSeek-v4-pro")
+    for model in (llms.make_llm_fast(structured=True), llms.make_llm_think(structured=True)):
+        assert model.model_name == "DeepSeek-v4-pro"
+        assert model.extra_body == {"thinking": {"type": "enabled"}}
+        assert model.reasoning_effort == "high"
+        assert model.max_tokens == 32768
+        assert model.temperature is None
+        assert model.streaming is True
+        assert model.stream_usage is True
+        assert model.model_kwargs["response_format"] == {"type": "json_object"}
+    monkeypatch.setenv("OPENHUB_MODEL", "deepseek-v4.1-flash")
+    assert llms.make_llm_fast().model_name == "deepseek-v4.1-flash"
+
+
+def test_openhub_model_belongs_to_question_config_not_shared_environment(monkeypatch):
+    from langchain_core.runnables import RunnableLambda
+    monkeypatch.setenv("LLM_BACKEND", "openhub")
+    monkeypatch.setenv("OPENHUB_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("OPENHUB_API_KEY", "unit-test-placeholder")
+    monkeypatch.setenv("OPENHUB_MODEL", "environment-default")
+    select = RunnableLambda(lambda _: llms.make_llm_fast().model_name)
+    selected = select.batch([None, None], config=[
+        {"configurable": {"openhub_model": "DeepSeek-v4-pro"}},
+        {"configurable": {"openhub_model": "deepseek-v4.1-flash"}},
+    ])
+    assert selected == ["DeepSeek-v4-pro", "deepseek-v4.1-flash"]
