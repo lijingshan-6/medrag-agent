@@ -4,7 +4,7 @@
 
 VeritasMed is a React + FastAPI + LangGraph research showcase. It retrieves literature, matches the requested studies, builds an outline bound to exact source passages, generates cited answers, and repairs missing details or unsupported statements. It is not a clinically validated assistant.
 
-**v0.4.0 local research showcase** · Python 3.12 · Node.js 22.12+ · Apache-2.0
+**[v0.4.0 research showcase](https://github.com/lijingshan-6/medrag-agent/tree/v0.4.0)** · Python 3.12 · Node.js 22.12+ · Apache-2.0
 
 The selected model is **Flash for every Agent role**, currently `DeepSeek-V4.1-Flash` through the configured compatible gateway. There is no automatic Pro fallback. The [v0.4 effect report](docs/agent-v0.4-flash-report.md) records actual answers, failures, evaluation status and source-based assessments. Model self-checks and evidence labels are not accuracy scores.
 
@@ -14,7 +14,16 @@ The selected model is **Flash for every Agent role**, currently `DeepSeek-V4.1-F
 
 ## Try it without a key
 
-Only Node.js is needed. From this checkout:
+Get the fixed milestone with Git, or download its
+[source ZIP](https://github.com/lijingshan-6/medrag-agent/archive/refs/tags/v0.4.0.zip)
+and open the extracted project directory:
+
+```sh
+git clone --branch v0.4.0 https://github.com/lijingshan-6/medrag-agent.git
+cd medrag-agent
+```
+
+Only Node.js is needed for Guided mode. From the project directory:
 
 ```sh
 cd frontend
@@ -24,7 +33,9 @@ npm run dev
 
 Open **http://127.0.0.1:5173/?demo=1**. Try the three examples, expand an evidence component and click **View source**. Explore, copy and Markdown download also work. Guided mode uses three fixed passages and authored answers entirely in the browser; arbitrary questions need Live mode.
 
-Repository: [lijingshan-6/medrag-agent](https://github.com/lijingshan-6/medrag-agent). These instructions describe the v0.4 checkout. This local milestone has not yet been pushed. [Version notes](docs/releases/v0.4.0.md)
+Repository: [lijingshan-6/medrag-agent](https://github.com/lijingshan-6/medrag-agent).
+The `v0.4.0` source tag fixes this milestone; `main` may contain later changes.
+[Version notes](docs/releases/v0.4.0.md) · [Actual Flash browser walkthrough](docs/demo.md#current-flash-browser-run--2026-09-23)
 
 ## Run Live Ask
 

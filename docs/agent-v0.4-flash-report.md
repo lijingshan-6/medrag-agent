@@ -1,9 +1,10 @@
 # v0.4 Flash: answer quality and release evidence
 
-Completed on 2026-09-23 as a **local v0.4 research showcase milestone**. Final development
+Completed on 2026-09-23 as the **v0.4 research showcase milestone**, published as source tag
+[`v0.4.0`](https://github.com/lijingshan-6/medrag-agent/tree/v0.4.0). Final development
 passes **15/15**, independent repetition **10/10**, and the first held-out evaluation **31/35
 (88.6%)** under the unchanged frozen rubric. All requests in these three runs completed.
-Four held-out failures remain visible; this is not a claim of clinical reliability or a GitHub publication.
+Four held-out failures remain visible; publication does not establish clinical reliability.
 
 ## Frozen implementation
 
@@ -20,7 +21,7 @@ content scores therefore do not establish fully reliable UI labels.
 
 The [freeze manifest](../data/benchmark/veritasmed_v1_1/v04_flash_release/freeze_manifest.json)
 records exact code, configuration, input hashes and the 65-file source snapshot. The question
-hash and scorer remain unchanged. Code and prompts will not be tuned using held-out outputs.
+hash and scorer remain unchanged. No code or prompts were tuned using held-out outputs for this release.
 The freeze preceded held-out inference at **09:50:05 UTC**. The test split was run once;
 there was no best-of selection or replacement of failed answers. These 35 questions are now
 exposed and cannot serve as unseen confirmation for subsequent fixes.

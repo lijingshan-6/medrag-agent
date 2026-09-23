@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — 2026-09-23 (local research showcase)
+## 0.4.0 — 2026-09-23 (published research showcase)
 
 - Add the OpenHub backend with streaming and per-question model selection for the complete Agent.
 - Preserve the Pro/Flash development comparison, repeat, all 44 completed answers and source-first assessments; see the [comparison report](docs/agent-model-comparison-report.md).
@@ -16,7 +16,8 @@
 - Complete final Flash development (15/15), independent repetition (10/10) and one post-freeze held-out evaluation (31/35), retaining all four test failures and unchanged scoring.
 - Record zero execution errors and no observed unsupported material additions in those three runs; preserve the omitted claims/boundaries, one missing endpoint qualifier and coverage disagreements.
 - Exercise current Flash Live Ask, source expansion, retrieval/document navigation and Markdown export; add actual screenshots and restore source-page styling and scrolling.
-- Package the full runtime snapshot, offline report commands and [v0.4.0 version notes](docs/releases/v0.4.0.md). No remote push or GitHub Release is implied.
+- Publish the milestone on `main` with source tag [`v0.4.0`](https://github.com/lijingshan-6/medrag-agent/tree/v0.4.0), including the full runtime snapshot, offline report commands and [version notes](docs/releases/v0.4.0.md).
+- Add fixed-version clone/ZIP instructions and current documentation links. This is a source/tag publication; a separate GitHub Release page is not part of this milestone.
 
 ## 0.4.0 repair — 2026-09-22 (unpublished development candidate)
 

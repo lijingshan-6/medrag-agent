@@ -1,7 +1,7 @@
 # v0.4 Flash convergence worklog
 
 Started 2026-09-23 under the [Flash baseline decision](decisions/2026-09-23-flash-research-baseline.md).
-Status: local v0.4.0 research showcase complete; development 15/15, independent repetition
+Status: v0.4.0 research showcase published; development 15/15, independent repetition
 10/10 and first post-freeze held-out evaluation 31/35. Entries below preserve the chronology.
 
 ## Fixed scope
@@ -290,3 +290,16 @@ one frozen before the test. These 35 questions are now exposed and can support r
 work, but future unseen-performance claims need fresh independent evidence. The README,
 workflow, demo guide, actual screenshots/export and version notes now describe the same
 local milestone. No remote push, stable tag or GitHub Release has been performed.
+
+## GitHub source publication — 2026-09-23
+
+After the local milestone, the user requested documentation consolidation and GitHub publication.
+The README now offers a fixed-version clone and source ZIP; the release notes collect the main
+changes, measured results, four retained failures, real browser screenshot and next research
+priorities. Current document entries refer to the released source; earlier chronological entries
+retain their original local/candidate status.
+
+The milestone is published to `main` and source tag `v0.4.0`, following the v0.3 source/tag
+publication convention. No separate GitHub Release page is created. Publication changes do not
+alter the frozen Agent, dataset, scoring or saved answers and do not make additional model calls.
+Commits and the annotated tag use the owner's Git identity without an additional coauthor.

@@ -1,6 +1,7 @@
 # 文档索引与维护范围
 
-更新：2026-09-23。当前为 **v0.4.0 本地研究展示里程碑，研究基线为 Flash，尚未推送**。
+更新：2026-09-23。当前为 **v0.4.0 已发布研究展示里程碑，研究基线为 Flash**。
+主分支提供当前入口，固定版本见 [`v0.4.0` 标签](https://github.com/lijingshan-6/medrag-agent/tree/v0.4.0)。
 开发 15/15、独立重复 10/10、首次保留测试 31/35；详见 [版本说明](releases/v0.4.0.md)。
 模型选择及下一轮优先级以 [当前决定](decisions/2026-09-23-flash-research-baseline.md) 为准。
 Qwen 修复报告与 Pro/Flash 对比记录的是不同运行，不能互相替代成绩。
@@ -29,7 +30,7 @@ Qwen 修复报告与 Pro/Flash 对比记录的是不同运行，不能互相替�
 | v0.4 首轮 Qwen | [报告](agent-v0.4-report.md) / [实施记录](agent-v0.4-worklog.md) | 首轮候选的失败和限制 |
 | v0.4 Qwen 修复 | [报告](agent-v0.4-repaired-report.md) / [修复记录](agent-v0.4-repair-worklog.md) | 指定 Qwen 配置下的开发集结果 |
 | OpenHub Pro/Flash | [对比报告](agent-model-comparison-report.md) / [实验计划](superpowers/plans/2026-09-22-deepseek-agent-comparison.md) | 两轮共 44 个真实 Agent 答案及逐题判定 |
-| v0.4 Flash 收敛 | [效果报告](agent-v0.4-flash-report.md) / [工作记录](agent-v0.4-flash-worklog.md) | 当前实现、开发过程与后续交付结果 |
+| 已发布 v0.4 Flash | [效果报告](agent-v0.4-flash-report.md) / [工作记录](agent-v0.4-flash-worklog.md) / [版本说明](releases/v0.4.0.md) | 冻结实现、开发/重复/首次保留测试与真实演示 |
 
 报告链接到相应逐题页面和原始数据。`*-cases.md` 等生成页面应通过报告中的脚本重新生成，
 不要手改分数或用一次成功重试覆盖失败。新答案需要重新对照原文审阅；离线重算已有分数
@@ -49,7 +50,7 @@ Qwen 修复报告与 Pro/Flash 对比记录的是不同运行，不能互相替�
 
 - Flash 收敛报告、开发/重复/保留测试逐题案例、真实界面截图与导出示例已齐备，历史候选说明保留。
 - 工作流或界面行为改变后：更新工作流及相关演示步骤；截图注明真实运行还是固定示例。
-- v0.4 推送或正式发布时：更新 README 的获取方式、版本说明和变更记录，不提前宣称已发布。
+- v0.4 已同步 README 获取方式、版本说明和变更记录；后续版本另记日期和发布标签。
 
 35 道保留题已经用于本次冻结后的评测，后续可用于回归，但不能再次称为未见测试。
 下一轮以新报告记录对遗漏、证据标签和可读性的改进，保留本次四道失败的原始判定。
